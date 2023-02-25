@@ -5,11 +5,8 @@ edition = "2021"
 authors = ["Leander Beernaert <lbb-dev@pm.me>"]
 license = "AGPL-3.0-only"
 description = "Rust bindings for https://github.com/ProtonMail/go-srp"
-readme = "README.md"
 keywords = ["api", "srp"]
 categories = ["api-bindings"]
-publish = false
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

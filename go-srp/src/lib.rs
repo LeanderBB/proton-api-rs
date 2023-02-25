@@ -1,6 +1,13 @@
 //! Simple bindings for the [go-srp](https://github.com/ProtonMail/go-srp) repository.
 //! Currently on the client side proof calcultion is exposed by the bindings as it is the only
-//! requirement for an account to log in.
+//! requirement for an account to log in
+//!
+//! # Building
+//! In order to build this library you need to have go v1.19 or higher installed on your system.
+//!
+//! # Safety
+//! This library needs unsafe to access the C interface exposed by the go library
+//!
 
 mod go;
 use crate::go::*;
