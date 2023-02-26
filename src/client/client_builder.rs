@@ -38,7 +38,7 @@ impl_error_conversion!(ClientBuilderError);
 
 /// Configure client details. The type can be re-used for multiple clients if you clone
 /// before consuming the type.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ClientBuilder(HttpClientBuilder);
 
 impl Default for ClientBuilder {

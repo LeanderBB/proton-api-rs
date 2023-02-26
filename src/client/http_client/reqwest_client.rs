@@ -12,7 +12,7 @@ pub struct HttpClient {
 }
 
 /// Builder for an http client
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct HttpClientBuilder {
     app_version: String,
     base_url: String,
