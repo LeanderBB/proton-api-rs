@@ -55,7 +55,11 @@ fn target_path_for_go_lib(platform: Platform) -> (PathBuf, PathBuf) {
             (lib_dir.clone(), lib_dir.join(format!("lib{GO_LIB_NAME}.a")))
         }
         Platform::Android(_) => {
-            let lib_dir = PathBuf::from(env::var("GO_SRP_ANDROID_OUT_DIR").unwrap());
+            let lib_dir = if let Ok(env_path) = env::var("GO_SRP_ANDROID_OUT_DIR") {
+                PathBuf::from(env_path)
+            } else {
+                PathBuf::from(env::var("OUT_DIR").unwrap()).join("../../../")
+            };
             (
                 lib_dir.clone(),
                 lib_dir.join(format!("lib{GO_LIB_NAME}.so")),
