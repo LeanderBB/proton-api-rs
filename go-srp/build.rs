@@ -121,7 +121,7 @@ fn build_go_lib(lib_path: &Path, platform: Platform) {
 fn generate_bindings_go_for_lib(lib_dir: &Path) {
     let header = lib_dir.join("libgo-srp.h");
 
-    let generated_bindings = lib_dir.join("go-srp.rs");
+    let generated_bindings = PathBuf::from(env::var("OUT_DIR").unwrap()).join("go-srp.rs");
 
     let bindings = bindgen::Builder::default()
         .header(header.to_str().unwrap())
