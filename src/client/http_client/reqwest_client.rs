@@ -1,5 +1,5 @@
 use crate::client::{DEFAULT_APP_VERSION, DEFAULT_HOST_URL, X_PM_APP_VERSION_HEADER};
-use crate::{APIError, HttpClientError, RequestError};
+use crate::{APIError, HttpClientError, Proxy, RequestError};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -18,6 +18,7 @@ pub struct HttpClientBuilder {
     base_url: String,
     request_timeout: Duration,
     user_agent: String,
+    proxy_url: Option<Proxy>,
 }
 
 impl Default for HttpClientBuilder {
@@ -33,6 +34,7 @@ impl HttpClientBuilder {
             user_agent: "NoClient/0.1.0".to_string(),
             base_url: DEFAULT_HOST_URL.to_string(),
             request_timeout: Duration::from_secs(5),
+            proxy_url: None,
         }
     }
 
@@ -61,6 +63,12 @@ impl HttpClientBuilder {
         self
     }
 
+    /// Specify proxy URL for the builder.
+    pub fn with_proxy(mut self, proxy: Proxy) -> Self {
+        self.proxy_url = Some(proxy);
+        self
+    }
+
     /// Constructs the http client
     pub fn build(self) -> Result<HttpClient, HttpClientError> {
         HttpClient::new(self)
@@ -76,10 +84,16 @@ impl HttpClient {
                 .map_err(|e| HttpClientError::Other(anyhow::format_err!(e)))?,
         );
 
-        let builder = reqwest::ClientBuilder::new();
+        let mut builder = reqwest::ClientBuilder::new();
         #[cfg(not(target_arch = "wasm32"))]
         let builder = {
             use reqwest::tls::Version;
+
+            if let Some(proxy) = http_builder.proxy_url {
+                let proxy = reqwest::Proxy::all(proxy.as_url())?;
+                builder = builder.proxy(proxy);
+            }
+
             builder
                 .min_tls_version(Version::TLS_1_2)
                 .https_only(true)

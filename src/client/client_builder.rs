@@ -3,9 +3,10 @@ use crate::client::types::{
     FIDO2Auth, TFAAuth, TFAStatus, UserAuth,
 };
 use crate::client::{HttpClientBuilder, X_PM_UID_HEADER};
-use crate::domain::UserUid;
+use crate::domain::{SecretString, UserUid};
 use crate::{impl_error_conversion, Client, RequestError};
 use go_srp::SRPAuth;
+use secrecy::ExposeSecret;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -47,6 +48,43 @@ impl Default for ClientBuilder {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum ProxyProtocol {
+    Https,
+    Socks5,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProxyAuth {
+    pub username: String,
+    pub password: SecretString,
+}
+
+#[derive(Debug, Clone)]
+pub struct Proxy {
+    pub protocol: ProxyProtocol,
+    pub auth: Option<ProxyAuth>,
+    pub url: String,
+    pub port: u16,
+}
+
+impl Proxy {
+    pub fn as_url(&self) -> String {
+        let protocol = match self.protocol {
+            ProxyProtocol::Https => "https",
+            ProxyProtocol::Socks5 => "socks5",
+        };
+
+        let auth = if let Some(auth) = &self.auth {
+            format!("{}:{}", auth.username, auth.password.expose_secret())
+        } else {
+            String::new()
+        };
+
+        format!("{protocol}://{auth}@{}:{}", self.url, self.port)
+    }
+}
+
 impl ClientBuilder {
     pub fn new() -> Self {
         Self(Default::default())
@@ -74,6 +112,12 @@ impl ClientBuilder {
     /// Set the request timeout. By default the timeout is set to 5 seconds.
     pub fn request_timeout(mut self, duration: Duration) -> Self {
         self.0 = self.0.request_timeout(duration);
+        self
+    }
+
+    /// Set the proxy for this client. By default no proxy is used
+    pub fn with_proxy(mut self, proxy: Proxy) -> Self {
+        self.0 = self.0.with_proxy(proxy);
         self
     }
 
