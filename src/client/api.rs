@@ -1,4 +1,4 @@
-use crate::client::types::{LatestEventResponse, UserAuth};
+use crate::client::types::{AuthRefresh, AuthRefreshResponse, LatestEventResponse, UserAuth};
 use crate::client::{HttpClient, RequestBuilder, X_PM_UID_HEADER};
 use crate::domain::{Event, EventId, SecretString, User, UserUid};
 use crate::RequestError;
@@ -21,6 +21,27 @@ impl Client {
     /// Get the currently logged in user's refresh token.
     pub fn user_refresh_token(&self) -> &SecretString {
         &self.user.refresh_token
+    }
+
+    /// Refresh the authentication token.
+    pub async fn refresh_auth(&mut self) -> Result<(), RequestError> {
+        let response = self
+            .http_client
+            .post("/auth/v4/refresh")
+            .header(X_PM_UID_HEADER, self.user.uid.expose_secret().as_str())
+            .with_body(&AuthRefresh {
+                uid: self.user.uid.expose_secret().as_str(),
+                refresh_token: self.user.refresh_token.expose_secret(),
+                grant_type: "refresh_token",
+                response_type: "token",
+                redirect_uri: "https://protonmail.ch/",
+            })
+            .execute()
+            .await?;
+
+        let auth = response.json::<AuthRefreshResponse>().await?;
+        self.user = UserAuth::from_auth_refresh_response(&auth);
+        Ok(())
     }
 
     /// Logout the current user. Consumes the type in the process. If the request fails, the
