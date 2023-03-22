@@ -7,12 +7,11 @@ async fn main() {
     let user_password = std::env::var("PAPI_USER_PASSWORD").unwrap();
     let app_version = std::env::var("PAPI_APP_VERSION").unwrap();
 
-    let client = match ClientBuilder::new()
-        .app_version(&app_version)
-        .login(&user_email, &user_password)
-        .await
-        .unwrap()
-    {
+    let builder = ClientBuilder::new().app_version(&app_version);
+
+    builder.ping().await.unwrap();
+
+    let client = match builder.login(&user_email, &user_password).await.unwrap() {
         ClientLoginState::Authenticated(c) => c,
 
         ClientLoginState::AwaitingTotp(mut t) => {

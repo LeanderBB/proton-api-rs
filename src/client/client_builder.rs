@@ -5,6 +5,7 @@ use crate::client::types::{
 use crate::client::{HttpClientBuilder, X_PM_UID_HEADER};
 use crate::domain::{SecretString, UserUid};
 use crate::{impl_error_conversion, Client, RequestError};
+use anyhow::anyhow;
 use go_srp::SRPAuth;
 use secrecy::ExposeSecret;
 use std::time::Duration;
@@ -213,6 +214,17 @@ impl ClientBuilder {
         let user = UserAuth::from_auth_refresh_response(&auth);
 
         Ok(Client { http_client, user })
+    }
+
+    /// Check connectivity
+    pub async fn ping(&self) -> Result<(), RequestError> {
+        let http_client = self.0.clone().build()?;
+        let r = http_client.get("tests/ping").execute().await?;
+        if r.status_code() != 200 {
+            return Err(RequestError::Other(anyhow!("Service not pingable")));
+        }
+
+        Ok(())
     }
 }
 
