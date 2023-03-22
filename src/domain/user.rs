@@ -18,6 +18,8 @@ impl secrecy::Zeroize for UserUid {
     }
 }
 
+impl secrecy::CloneableSecret for UserUid {}
+
 impl secrecy::DebugSecret for UserUid {}
 
 impl UserUid {

@@ -216,6 +216,16 @@ impl ClientBuilder {
         Ok(Client { http_client, user })
     }
 
+    /// Creates a new client which inherits the authentication state from another client.
+    pub fn with_client_auth(self, client: &Client) -> Result<Client, RequestError> {
+        let http_client = self.0.build()?;
+
+        Ok(Client {
+            http_client,
+            user: client.user.clone(),
+        })
+    }
+
     /// Check connectivity
     pub async fn ping(&self) -> Result<(), RequestError> {
         let http_client = self.0.clone().build()?;

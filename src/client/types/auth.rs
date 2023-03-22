@@ -129,7 +129,7 @@ impl<'a> FIDO2Auth<'a> {
 }
 
 #[doc(hidden)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UserAuth {
     pub uid: Secret<UserUid>,
     pub access_token: SecretString,
