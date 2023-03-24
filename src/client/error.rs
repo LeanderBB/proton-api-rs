@@ -17,16 +17,16 @@ pub enum RequestError {
 #[derive(Debug, Error)]
 /// Errors that may occur during an HTTP request, mostly related to network.
 pub enum HttpClientError {
-    #[error("A redirect error occurred at '{0}")]
-    Redirect(String),
+    #[error("A redirect error occurred at '{0}: {1}")]
+    Redirect(String, #[source] anyhow::Error),
     #[error("Connection timed out")]
-    Timeout,
-    #[error("Connection error occurred")]
-    Connection,
-    #[error("An error occurred related to either the request or response body")]
-    Body,
-    #[error("An error occurred preparing the request")]
-    Request,
+    Timeout(#[source] anyhow::Error),
+    #[error("Connection error: {0}")]
+    Connection(#[source] anyhow::Error),
+    #[error("Request/Response body error: {0}")]
+    Body(#[source] anyhow::Error),
+    #[error("Request error:{0}")]
+    Request(#[source] anyhow::Error),
     #[error("Unexpected error occurred: {0}")]
     Other(#[source] anyhow::Error),
 }

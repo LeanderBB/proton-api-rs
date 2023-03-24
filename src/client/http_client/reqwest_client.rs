@@ -167,22 +167,23 @@ impl From<reqwest::Error> for HttpClientError {
     fn from(value: reqwest::Error) -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         if value.is_connect() {
-            return HttpClientError::Connection;
+            return HttpClientError::Connection(anyhow::Error::new(value));
         }
 
         if value.is_body() {
-            HttpClientError::Body
+            HttpClientError::Body(anyhow::Error::new(value))
         } else if value.is_redirect() {
             HttpClientError::Redirect(
                 value
                     .url()
                     .map(|v| v.to_string())
                     .unwrap_or("Unknown URL".to_string()),
+                anyhow::Error::new(value),
             )
         } else if value.is_timeout() {
-            HttpClientError::Timeout
+            HttpClientError::Timeout(anyhow::Error::new(value))
         } else if value.is_request() {
-            HttpClientError::Request
+            HttpClientError::Request(anyhow::Error::new(value))
         } else {
             HttpClientError::Other(anyhow::Error::new(value))
         }
