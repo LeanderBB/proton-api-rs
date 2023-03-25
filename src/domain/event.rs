@@ -60,7 +60,7 @@ pub struct MessageEvent {
     #[serde(rename = "ID")]
     pub id: MessageId,
     pub action: MessageAction,
-    pub message: Message,
+    pub message: Option<Message>,
 }
 
 /// Represents an email message.
