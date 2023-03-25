@@ -110,9 +110,15 @@ impl ClientBuilder {
         self
     }
 
-    /// Set the request timeout. By default the timeout is set to 5 seconds.
+    /// Set the request timeout. By default the timeout is set to None.
     pub fn request_timeout(mut self, duration: Duration) -> Self {
         self.0 = self.0.request_timeout(duration);
+        self
+    }
+
+    /// Set the connection timeout. By default the timeout is set to None.
+    pub fn connect_timeout(mut self, duration: Duration) -> Self {
+        self.0 = self.0.connect_timeout(duration);
         self
     }
 

@@ -16,7 +16,8 @@ pub struct HttpClient {
 pub struct HttpClientBuilder {
     app_version: String,
     base_url: String,
-    request_timeout: Duration,
+    request_timeout: Option<Duration>,
+    connect_timeout: Option<Duration>,
     user_agent: String,
     proxy_url: Option<Proxy>,
 }
@@ -33,7 +34,8 @@ impl HttpClientBuilder {
             app_version: DEFAULT_APP_VERSION.to_string(),
             user_agent: "NoClient/0.1.0".to_string(),
             base_url: DEFAULT_HOST_URL.to_string(),
-            request_timeout: Duration::from_secs(5),
+            request_timeout: None,
+            connect_timeout: None,
             proxy_url: None,
         }
     }
@@ -57,9 +59,15 @@ impl HttpClientBuilder {
         self
     }
 
-    /// Set the request timeout. By default the timeout is set to 5 seconds.
+    /// Set the full request timeout. By default there is no timeout.
     pub fn request_timeout(mut self, duration: Duration) -> Self {
-        self.request_timeout = duration;
+        self.request_timeout = Some(duration);
+        self
+    }
+
+    /// Set the connection timeout. By default there is no timeout.
+    pub fn connect_timeout(mut self, duration: Duration) -> Self {
+        self.request_timeout = Some(duration);
         self
     }
 
@@ -94,11 +102,18 @@ impl HttpClient {
                 builder = builder.proxy(proxy);
             }
 
+            if let Some(d) = http_builder.connect_timeout {
+                builder = builder.connect_timeout(d)
+            }
+
+            if let Some(d) = http_builder.request_timeout {
+                builder = builder.timeout(d)
+            }
+
             builder
                 .min_tls_version(Version::TLS_1_2)
                 .https_only(true)
                 .cookie_store(true)
-                .timeout(http_builder.request_timeout)
                 .user_agent(http_builder.user_agent)
                 .default_headers(header_map)
         };
