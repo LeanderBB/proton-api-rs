@@ -180,6 +180,12 @@ impl From<reqwest::Error> for RequestError {
 
 impl From<reqwest::Error> for HttpClientError {
     fn from(value: reqwest::Error) -> Self {
+        // Check timeout before all other errors as it can be produced by multiple
+        // reqwest error kinds.
+        if value.is_timeout() {
+            return HttpClientError::Timeout(anyhow::Error::new(value));
+        }
+
         #[cfg(not(target_arch = "wasm32"))]
         if value.is_connect() {
             return HttpClientError::Connection(anyhow::Error::new(value));
@@ -195,8 +201,6 @@ impl From<reqwest::Error> for HttpClientError {
                     .unwrap_or("Unknown URL".to_string()),
                 anyhow::Error::new(value),
             )
-        } else if value.is_timeout() {
-            HttpClientError::Timeout(anyhow::Error::new(value))
         } else if value.is_request() {
             HttpClientError::Request(anyhow::Error::new(value))
         } else {
