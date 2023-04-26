@@ -52,7 +52,6 @@ impl Display for APIError {
     }
 }
 
-#[macro_export(crate)]
 macro_rules! impl_error_conversion {
     ($t:ident) => {
         impl From<$crate::APIError> for $t {
@@ -74,3 +73,5 @@ macro_rules! impl_error_conversion {
         }
     };
 }
+
+pub(crate) use impl_error_conversion;

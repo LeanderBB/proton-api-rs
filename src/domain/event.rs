@@ -71,4 +71,7 @@ pub struct Message {
     pub id: MessageId,
     #[serde(rename = "LabelIDs")]
     pub labels: Vec<LabelID>,
+    pub subject: String,
+    pub sender_address: String,
+    pub sender_name: Option<String>,
 }
