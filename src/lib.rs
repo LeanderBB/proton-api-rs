@@ -36,56 +36,87 @@
 //!
 //! # Getting Started
 //!
-//! Login into a new session:
+//! Login into a new session async:
 //! ```
-//! use proton_api_rs::{ClientBuilder, ClientLoginState};
-//! async fn example() {
-//!     let client = ClientBuilder::new()
+//! use proton_api_rs::{http, Session, SessionType};
+//! async fn example<T:http::ClientAsync>() {
+//!     let client = http::ClientBuilder::new()
 //!         .user_agent("MyUserAgent/0.0.0")
 //!         .base_url("server_url")
 //!         .app_version("MyApp@0.1.1")
-//!         .login("my_address@proton.me", "my_proton_password").await.unwrap();
+//!         .build::<T>().unwrap();
 //!
-//!
-//!     let client = match client {
-//!         // Client is authenticated, no 2FA verifications necessary.
-//!         ClientLoginState::Authenticated(c) => c,
-//!         // Client needs 2FA TOTP auth.
-//!         ClientLoginState::AwaitingTotp(t) => {
-//!             t.submit_totp("000000").await.unwrap()
+//!     let session = match Session::login_async(&client, "my_address@proton.me", "my_proton_password").await.unwrap(){
+//!         // Session is authenticated, no 2FA verifications necessary.
+//!         SessionType::Authenticated(c) => c,
+//!         // Session needs 2FA TOTP auth.
+//!         SessionType::AwaitingTotp(t) => {
+//!             t.submit_totp_async(&client, "000000").await.unwrap()
 //!         }
 //!     };
 //!
-//!     // client is now authenticated and can access the rest of the API.
+//!     // session is now authenticated and can access the rest of the API.
 //!     // ...
-//!     client.logout().await.unwrap();
+//!
+//!     session.logout_async(&client).await.unwrap();
+//! }
+//! ```
+//!
+//! Login into a new session sync:
+//! ```
+//! use proton_api_rs::{http, Session, SessionType};
+//! fn example<T:http::ClientSync>() {
+//!     let client = http::ClientBuilder::new()
+//!         .user_agent("MyUserAgent/0.0.0")
+//!         .base_url("server_url")
+//!         .app_version("MyApp@0.1.1")
+//!         .build::<T>().unwrap();
+//!
+//!     let session = match Session::login(&client, "my_address@proton.me", "my_proton_password").unwrap(){
+//!         // Session is authenticated, no 2FA verifications necessary.
+//!         SessionType::Authenticated(c) => c,
+//!         // Session needs 2FA TOTP auth.
+//!         SessionType::AwaitingTotp(t) => {
+//!             t.submit_totp(&client, "000000").unwrap()
+//!         }
+//!     };
+//!
+//!     // session is now authenticated and can access the rest of the API.
+//!     // ...
+//!
+//!     session.logout(&client).unwrap();
 //! }
 //! ```
 //!
 //! Login using a previous sessions token.
 //! ```
-//! use proton_api_rs::{ClientBuilder, ClientLoginState};
+//! use proton_api_rs::{http, Session, SessionType};
 //! use proton_api_rs::domain::UserUid;
 //!
-//! async fn example() {
+//! async fn example<T:http::ClientAsync>() {
 //!     let user_uid = "user_uid".into();
 //!     let user_refresh_token = "token";
-//!     let client = ClientBuilder::new()
+//!     let client = http::ClientBuilder::new()
 //!         .user_agent("MyUserAgent/0.0.0")
 //!         .base_url("server_url")
 //!         .app_version("MyApp@0.1.1")
-//!         .with_token(&user_uid, &user_refresh_token).await.unwrap();
+//!         .build::<T>().unwrap();
 //!
-//!     // client is now authenticated and can access the rest of the API.
+//!     let session = Session::refresh_async(&client, &user_uid, &user_refresh_token).await.unwrap();
+//!
+//!     // session is now authenticated and can access the rest of the API.
 //!     // ...
-//!     client.logout().await.unwrap();
+//!
+//!     session.logout_async(&client).await.unwrap();
 //! }
 //! ```
 
-mod client;
+pub mod clientv2;
 pub mod domain;
-pub use client::*;
+pub mod http;
+mod requests;
+
+pub use clientv2::*;
 
 // Re-export tokio and log.
 pub use log;
-pub use tokio;

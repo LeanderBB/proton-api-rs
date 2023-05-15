@@ -1,4 +1,6 @@
 use crate::domain::{SecretString, UserUid};
+use crate::http;
+use crate::http::{Request, RequestFactory};
 use secrecy::Secret;
 use serde::{Deserialize, Serialize};
 use serde_repr::Deserialize_repr;
@@ -9,6 +11,16 @@ use std::borrow::Cow;
 #[serde(rename_all = "PascalCase")]
 pub struct AuthInfoRequest<'a> {
     pub username: &'a str,
+}
+
+impl<'a> http::RequestWithBody for AuthInfoRequest<'a> {
+    type Response = AuthInfoResponse<'a>;
+
+    fn build_request(&self, factory: &dyn RequestFactory) -> Request {
+        factory
+            .new_request(http::Method::Post, "auth/v4/info")
+            .json(self)
+    }
 }
 
 #[doc(hidden)]
@@ -32,6 +44,16 @@ pub struct AuthRequest<'a> {
     pub client_proof: &'a str,
     #[serde(rename = "SRPSession")]
     pub srp_session: &'a str,
+}
+
+impl<'a> http::RequestWithBody for AuthRequest<'a> {
+    type Response = AuthResponse<'a>;
+
+    fn build_request(&self, factory: &dyn RequestFactory) -> Request {
+        factory
+            .new_request(http::Method::Post, "auth/v4")
+            .json(self)
+    }
 }
 
 #[doc(hidden)]
@@ -128,6 +150,27 @@ impl<'a> FIDO2Auth<'a> {
     }
 }
 
+pub struct TOTPRequest<'a> {
+    code: &'a str,
+}
+
+impl<'a> TOTPRequest<'a> {
+    pub fn new(code: &'a str) -> Self {
+        Self { code }
+    }
+}
+
+impl<'a> http::RequestNoBody for TOTPRequest<'a> {
+    fn build_request(&self, factory: &dyn RequestFactory) -> Request {
+        factory
+            .new_request(http::Method::Post, "auth/v4/2fa")
+            .json(TFAAuth {
+                two_factor_code: self.code,
+                fido2: FIDO2Auth::empty(),
+            })
+    }
+}
+
 #[doc(hidden)]
 #[derive(Debug, Clone)]
 pub struct UserAuth {
@@ -177,4 +220,40 @@ pub struct AuthRefreshResponse<'a> {
     pub access_token: Cow<'a, str>,
     pub refresh_token: Cow<'a, str>,
     pub scope: Cow<'a, str>,
+}
+
+pub struct AuthRefreshRequest<'a> {
+    uid: &'a UserUid,
+    token: &'a str,
+}
+
+impl<'a> AuthRefreshRequest<'a> {
+    pub fn new(uid: &'a UserUid, token: &'a str) -> Self {
+        Self { uid, token }
+    }
+}
+
+impl<'a> http::RequestWithBody for AuthRefreshRequest<'a> {
+    type Response = AuthRefreshResponse<'a>;
+
+    fn build_request(&self, factory: &dyn RequestFactory) -> Request {
+        factory
+            .new_request(http::Method::Post, "auth/v4/refresh")
+            .header(http::X_PM_UID_HEADER, &self.uid.0)
+            .json(AuthRefresh {
+                uid: &self.uid.0,
+                refresh_token: self.token,
+                grant_type: "refresh_token",
+                response_type: "token",
+                redirect_uri: "https://protonmail.ch/",
+            })
+    }
+}
+
+pub struct LogoutRequest {}
+
+impl http::RequestNoBody for LogoutRequest {
+    fn build_request(&self, factory: &dyn RequestFactory) -> Request {
+        factory.new_request(http::Method::Delete, "auth/v4")
+    }
 }
