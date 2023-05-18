@@ -1,5 +1,5 @@
 use crate::http;
-use crate::http::RequestNoBody;
+use crate::http::Request;
 use crate::requests::Ping;
 
 pub fn ping<T: http::ClientSync>(client: &T) -> Result<(), http::Error> {

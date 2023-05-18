@@ -24,6 +24,7 @@ secrecy = "0.8"
 anyhow = "1.0"
 bytes = "1.4"
 log = "0.4"
+parking_lot = "0.12"
 ureq = {version="2.6", optional=true}
 
 

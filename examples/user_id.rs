@@ -1,5 +1,5 @@
-use proton_api_rs::{http, ping_async};
-use proton_api_rs::{Session, SessionType};
+use proton_api_rs::SessionType;
+use proton_api_rs::{http, ping_async, DefaultSession};
 pub use tokio;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
@@ -16,7 +16,7 @@ async fn main() {
 
     ping_async(&client).await.unwrap();
 
-    let session = match Session::login_async(&client, &user_email, &user_password)
+    let session = match DefaultSession::login_async(&client, &user_email, &user_password)
         .await
         .unwrap()
     {

@@ -1,13 +1,15 @@
 use crate::clientv2::TotpSession;
 use crate::domain::{Event, EventId, TwoFactorAuth, User, UserUid};
-use crate::http;
-use crate::http::{DefaultRequestFactory, RequestFactory, RequestNoBody, RequestWithBody};
+use crate::http::{DefaultRequestFactory, Request, RequestFactory};
 use crate::requests::{
     AuthInfoRequest, AuthInfoResponse, AuthRefreshRequest, AuthRequest, AuthResponse,
     GetEventRequest, GetLatestEventRequest, LogoutRequest, TFAStatus, UserAuth, UserInfoRequest,
 };
+use crate::{http, AutoAuthRefreshRequestPolicy};
 use go_srp::SRPAuth;
-use secrecy::ExposeSecret;
+use secrecy::Secret;
+use std::future::Future;
+use std::pin::Pin;
 
 #[derive(Debug, thiserror::Error)]
 pub enum LoginError {
@@ -25,40 +27,61 @@ pub enum LoginError {
     SRPProof(String),
 }
 
-#[derive(Debug)]
-pub enum SessionType {
-    Authenticated(Session),
-    AwaitingTotp(TotpSession),
+/// Trait to access the underlying user authentication data in a session policy.
+pub trait UserAuthFromSessionRequestPolicy {
+    fn user_auth(&self) -> &UserAuth;
+    fn user_auth_mut(&mut self) -> &mut UserAuth;
+}
+
+/// Data which can be used to save a session and restore it later.
+pub struct SessionRefreshData {
+    pub user_uid: Secret<UserUid>,
+    pub token: Secret<String>,
+}
+
+/// Session Request Policy can be used to add custom behavior to a session request, such as
+/// retrying on network errors, respecting 429 codes, etc...
+pub trait SessionRequestPolicy: From<UserAuth> + RequestFactory {
+    fn execute<C: http::ClientSync, R: Request>(
+        &self,
+        client: &C,
+        request: R,
+    ) -> http::Result<R::Output>;
+
+    fn execute_async<'a, C: http::ClientAsync, R: Request + 'a>(
+        &'a self,
+        client: &'a C,
+        request: R,
+    ) -> Pin<Box<dyn Future<Output = http::Result<R::Output>> + 'a>>;
+
+    fn get_refresh_data(&self) -> SessionRefreshData;
 }
 
 #[derive(Debug)]
-pub struct Session {
-    user: UserAuth,
+pub enum SessionType<P: SessionRequestPolicy> {
+    Authenticated(Session<P>),
+    AwaitingTotp(TotpSession<P>),
 }
 
-impl Session {
+/// Authenticated Session from which one can access data/functionality restricted to authenticated
+/// users.
+#[derive(Debug)]
+pub struct Session<P: SessionRequestPolicy> {
+    pub(super) policy: P,
+}
+
+impl<P: SessionRequestPolicy> Session<P> {
     fn new(user: UserAuth) -> Self {
-        Self { user }
+        Self {
+            policy: P::from(user),
+        }
     }
 
-    fn apply_auth_token(&self, request: http::Request) -> http::Request {
-        request
-            .header(http::X_PM_UID_HEADER, &self.user.uid.expose_secret().0)
-            .bearer_token(self.user.access_token.expose_secret())
-    }
-
-    fn new_request(&self, method: http::Method, url: &str) -> http::Request {
-        let request = http::Request::new(method, url);
-        self.apply_auth_token(request)
-    }
-}
-
-impl Session {
     pub fn login<T: http::ClientSync>(
         client: &T,
         username: &str,
         password: &str,
-    ) -> Result<SessionType, LoginError> {
+    ) -> Result<SessionType<P>, LoginError> {
         let auth_info_response =
             AuthInfoRequest { username }.execute_sync::<T>(client, &DefaultRequestFactory {})?;
 
@@ -79,7 +102,7 @@ impl Session {
         client: &T,
         username: &str,
         password: &str,
-    ) -> Result<SessionType, LoginError> {
+    ) -> Result<SessionType<P>, LoginError> {
         let auth_info_response = AuthInfoRequest { username }
             .execute_async::<T>(client, &DefaultRequestFactory {})
             .await?;
@@ -111,7 +134,6 @@ impl Session {
     }
 
     pub fn refresh<T: http::ClientSync>(
-        &self,
         client: &T,
         user_uid: &UserUid,
         token: &str,
@@ -123,7 +145,7 @@ impl Session {
     }
 
     pub fn get_user<T: http::ClientSync>(&self, client: &T) -> Result<User, http::Error> {
-        let user = UserInfoRequest {}.execute_sync::<T>(client, self)?;
+        let user = self.policy.execute(client, UserInfoRequest {})?;
         Ok(user.user)
     }
 
@@ -131,20 +153,25 @@ impl Session {
         &self,
         client: &T,
     ) -> Result<User, http::Error> {
-        let user = UserInfoRequest {}.execute_async::<T>(client, self).await?;
+        let user = self
+            .policy
+            .execute_async(client, UserInfoRequest {})
+            .await?;
         Ok(user.user)
     }
 
     pub fn logout<T: http::ClientSync>(&self, client: &T) -> Result<(), http::Error> {
-        LogoutRequest {}.execute_sync::<T>(client, self)
+        LogoutRequest {}.execute_sync::<T>(client, &self.policy)
     }
 
     pub async fn logout_async<T: http::ClientAsync>(&self, client: &T) -> Result<(), http::Error> {
-        LogoutRequest {}.execute_async::<T>(client, self).await
+        LogoutRequest {}
+            .execute_async::<T>(client, &self.policy)
+            .await
     }
 
     pub fn get_latest_event<T: http::ClientSync>(&self, client: &T) -> http::Result<EventId> {
-        let r = GetLatestEventRequest.execute_sync(client, self)?;
+        let r = self.policy.execute(client, GetLatestEventRequest {})?;
         Ok(r.event_id)
     }
 
@@ -152,12 +179,15 @@ impl Session {
         &self,
         client: &T,
     ) -> http::Result<EventId> {
-        let r = GetLatestEventRequest.execute_async(client, self).await?;
+        let r = self
+            .policy
+            .execute_async(client, GetLatestEventRequest {})
+            .await?;
         Ok(r.event_id)
     }
 
     pub fn get_event<T: http::ClientSync>(&self, client: &T, id: &EventId) -> http::Result<Event> {
-        GetEventRequest::new(id).execute_sync(client, self)
+        self.policy.execute(client, GetEventRequest::new(id))
     }
 
     pub async fn get_event_async<T: http::ClientAsync>(
@@ -165,13 +195,21 @@ impl Session {
         client: &T,
         id: &EventId,
     ) -> http::Result<Event> {
-        GetEventRequest::new(id).execute_async(client, self).await
+        self.policy
+            .execute_async(client, GetEventRequest::new(id))
+            .await
+    }
+
+    pub fn get_refresh_data(&self) -> SessionRefreshData {
+        self.policy.get_refresh_data()
     }
 }
 
-impl RequestFactory for Session {
-    fn new_request(&self, method: http::Method, url: &str) -> http::Request {
-        self.new_request(method, url)
+impl<T: SessionRequestPolicy + UserAuthFromSessionRequestPolicy>
+    Session<AutoAuthRefreshRequestPolicy<T>>
+{
+    pub fn was_auth_refreshed(&self) -> bool {
+        self.policy.was_auth_refreshed()
     }
 }
 
@@ -191,10 +229,10 @@ fn generate_session_proof(
     .map_err(LoginError::ServerProof)
 }
 
-fn validate_server_proof(
+fn validate_server_proof<P: SessionRequestPolicy>(
     proof: &SRPAuth,
     auth_response: &AuthResponse,
-) -> Result<SessionType, LoginError> {
+) -> Result<SessionType<P>, LoginError> {
     if proof.expected_server_proof != auth_response.server_proof {
         return Err(LoginError::ServerProof(
             "Server Proof does not match".to_string(),

@@ -1,11 +1,14 @@
 use crate::http::{
-    ClientAsync, ClientBuilder, Error, Method, Request, Response, X_PM_APP_VERSION_HEADER,
+    ClientAsync, ClientBuilder, Error, FromResponse, Method, Request, RequestFactory,
+    ResponseBodyAsync, X_PM_APP_VERSION_HEADER,
 };
 use crate::requests::APIError;
+use bytes::Bytes;
 use reqwest;
 use std::future::Future;
 use std::pin::Pin;
 
+#[derive(Debug)]
 pub struct ReqwestClient {
     client: reqwest::Client,
     base_url: String,
@@ -82,11 +85,27 @@ impl From<reqwest::Error> for Error {
     }
 }
 
+struct ReqwestResponse(reqwest::Response);
+
+impl ResponseBodyAsync for ReqwestResponse {
+    type Body = Bytes;
+
+    fn get_body_async(self) -> Pin<Box<dyn Future<Output = crate::http::Result<Self::Body>>>> {
+        Box::pin(async {
+            let bytes = self.0.bytes().await?;
+            Ok(bytes)
+        })
+    }
+}
+
 impl ClientAsync for ReqwestClient {
-    fn execute_async(
+    fn execute_async<R: Request + ?Sized>(
         &self,
-        request: &Request,
-    ) -> Pin<Box<dyn Future<Output = crate::http::Result<Response>>>> {
+        r: &R,
+        factory: &dyn RequestFactory,
+    ) -> Pin<Box<dyn Future<Output = crate::http::Result<R::Output>>>> {
+        let request = r.build_request(factory);
+
         let final_url = format!("{}/{}", self.base_url, request.url);
 
         let mut rrequest = match request.method {
@@ -106,7 +125,6 @@ impl ClientAsync for ReqwestClient {
             rrequest = rrequest.body(body.to_vec())
         }
 
-        let skips_body = request.skip_response_body;
         Box::pin(async move {
             let response = rrequest.send().await?;
 
@@ -124,16 +142,7 @@ impl ClientAsync for ReqwestClient {
                 )));
             }
 
-            if skips_body {
-                return Ok(Response { status, body: None });
-            }
-
-            let body = response.bytes().await?;
-
-            Ok(Response {
-                status,
-                body: Some(body.to_vec()),
-            })
+            R::Response::from_response_async(ReqwestResponse(response)).await
         })
     }
 }

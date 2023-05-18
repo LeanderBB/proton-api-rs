@@ -1,6 +1,6 @@
 use crate::domain::{SecretString, UserUid};
 use crate::http;
-use crate::http::{Request, RequestFactory};
+use crate::http::{RequestData, RequestFactory};
 use secrecy::Secret;
 use serde::{Deserialize, Serialize};
 use serde_repr::Deserialize_repr;
@@ -13,10 +13,11 @@ pub struct AuthInfoRequest<'a> {
     pub username: &'a str,
 }
 
-impl<'a> http::RequestWithBody for AuthInfoRequest<'a> {
-    type Response = AuthInfoResponse<'a>;
+impl<'a> http::Request for AuthInfoRequest<'a> {
+    type Output = AuthInfoResponse<'a>;
+    type Response = http::JsonResponse<Self::Output>;
 
-    fn build_request(&self, factory: &dyn RequestFactory) -> Request {
+    fn build_request(&self, factory: &dyn RequestFactory) -> RequestData {
         factory
             .new_request(http::Method::Post, "auth/v4/info")
             .json(self)
@@ -46,10 +47,11 @@ pub struct AuthRequest<'a> {
     pub srp_session: &'a str,
 }
 
-impl<'a> http::RequestWithBody for AuthRequest<'a> {
-    type Response = AuthResponse<'a>;
+impl<'a> http::Request for AuthRequest<'a> {
+    type Output = AuthResponse<'a>;
+    type Response = http::JsonResponse<Self::Output>;
 
-    fn build_request(&self, factory: &dyn RequestFactory) -> Request {
+    fn build_request(&self, factory: &dyn RequestFactory) -> RequestData {
         factory
             .new_request(http::Method::Post, "auth/v4")
             .json(self)
@@ -160,8 +162,11 @@ impl<'a> TOTPRequest<'a> {
     }
 }
 
-impl<'a> http::RequestNoBody for TOTPRequest<'a> {
-    fn build_request(&self, factory: &dyn RequestFactory) -> Request {
+impl<'a> http::Request for TOTPRequest<'a> {
+    type Output = ();
+    type Response = http::NoResponse;
+
+    fn build_request(&self, factory: &dyn RequestFactory) -> RequestData {
         factory
             .new_request(http::Method::Post, "auth/v4/2fa")
             .json(TFAAuth {
@@ -233,10 +238,11 @@ impl<'a> AuthRefreshRequest<'a> {
     }
 }
 
-impl<'a> http::RequestWithBody for AuthRefreshRequest<'a> {
-    type Response = AuthRefreshResponse<'a>;
+impl<'a> http::Request for AuthRefreshRequest<'a> {
+    type Output = AuthRefreshResponse<'a>;
+    type Response = http::JsonResponse<Self::Output>;
 
-    fn build_request(&self, factory: &dyn RequestFactory) -> Request {
+    fn build_request(&self, factory: &dyn RequestFactory) -> RequestData {
         factory
             .new_request(http::Method::Post, "auth/v4/refresh")
             .header(http::X_PM_UID_HEADER, &self.uid.0)
@@ -252,8 +258,11 @@ impl<'a> http::RequestWithBody for AuthRefreshRequest<'a> {
 
 pub struct LogoutRequest {}
 
-impl http::RequestNoBody for LogoutRequest {
-    fn build_request(&self, factory: &dyn RequestFactory) -> Request {
+impl http::Request for LogoutRequest {
+    type Output = ();
+    type Response = http::NoResponse;
+
+    fn build_request(&self, factory: &dyn RequestFactory) -> RequestData {
         factory.new_request(http::Method::Delete, "auth/v4")
     }
 }

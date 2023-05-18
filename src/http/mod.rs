@@ -7,6 +7,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::future::Future;
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::time::Duration;
 use thiserror::Error;
@@ -35,24 +36,22 @@ pub enum Method {
 
 /// HTTP Request representation.
 #[derive(Debug)]
-pub struct Request {
+pub struct RequestData {
     #[allow(unused)] // Only used by http implementations.
     pub(super) method: Method,
     #[allow(unused)] // Only used by http implementations.
     pub(super) url: String,
     pub(super) headers: HashMap<String, String>,
     pub(super) body: Option<Vec<u8>>,
-    pub(super) skip_response_body: bool,
 }
 
-impl Request {
+impl RequestData {
     pub fn new(method: Method, url: impl Into<String>) -> Self {
         Self {
             method,
             url: url.into(),
             headers: HashMap::new(),
             body: None,
-            skip_response_body: false,
         }
     }
 
@@ -78,37 +77,6 @@ impl Request {
     pub fn json_bytes(mut self, bytes: Vec<u8>) -> Self {
         self.body = Some(bytes);
         self.header("Content-Type", "application/json")
-    }
-
-    fn skip_response_body(mut self) -> Self {
-        self.skip_response_body = true;
-        self
-    }
-}
-
-/// HTTP Response Object
-pub struct Response {
-    pub(super) status: u16,
-    pub(super) body: Option<Vec<u8>>,
-}
-
-impl Response {
-    pub fn status(&self) -> u16 {
-        self.status
-    }
-
-    pub fn body(&self) -> Option<&[u8]> {
-        self.body.as_deref()
-    }
-
-    pub fn as_json<T: DeserializeOwned>(&self) -> std::result::Result<T, serde_json::Error> {
-        let data = if let Some(b) = &self.body {
-            b.as_slice()
-        } else {
-            &[]
-        };
-
-        serde_json::from_slice::<T>(data)
     }
 }
 
@@ -250,7 +218,7 @@ impl ClientBuilder {
 /// Abstraction for request creation, this can enable wrapping of request creations to add
 /// session token or other headers.
 pub trait RequestFactory {
-    fn new_request(&self, method: Method, url: &str) -> Request;
+    fn new_request(&self, method: Method, url: &str) -> RequestData;
 }
 
 /// Default request factory, creates basic requests.
@@ -258,73 +226,106 @@ pub trait RequestFactory {
 pub struct DefaultRequestFactory {}
 
 impl RequestFactory for DefaultRequestFactory {
-    fn new_request(&self, method: Method, url: &str) -> Request {
-        Request::new(method, url)
+    fn new_request(&self, method: Method, url: &str) -> RequestData {
+        RequestData::new(method, url)
     }
 }
 
-/// RequestWithBody trait should be applied to every request object which needs to look at the body
-/// of the request.
-pub trait RequestWithBody {
-    type Response: DeserializeOwned;
-
-    fn build_request(&self, factory: &dyn RequestFactory) -> Request;
-
-    fn execute_sync<C: ClientSync>(
-        &self,
-        client: &C,
-        factory: &dyn RequestFactory,
-    ) -> Result<Self::Response> {
-        let request = self.build_request(factory);
-        let response = client.execute(&request)?;
-        let result = response.as_json::<Self::Response>()?;
-        Ok(result)
-    }
-
-    fn execute_async<'a, C: ClientAsync>(
-        &self,
-        client: &'a C,
-        factory: &dyn RequestFactory,
-    ) -> Pin<Box<dyn Future<Output = Result<Self::Response>> + 'a>> {
-        let request = self.build_request(factory);
-        Box::pin(async move {
-            let response = client.execute_async(&request).await?;
-            let result = response.as_json::<Self::Response>()?;
-            Ok(result)
-        })
-    }
+pub trait ResponseBodySync {
+    type Body: AsRef<[u8]>;
+    fn get_body(self) -> Result<Self::Body>;
 }
 
-/// RequestNoBody trait should be implemented for all request which do not which do not need
-/// to inspect the body of the request.
-pub trait RequestNoBody {
-    fn build_request(&self, factory: &dyn RequestFactory) -> Request;
+pub trait ResponseBodyAsync {
+    type Body: AsRef<[u8]>;
+    fn get_body_async(self) -> Pin<Box<dyn Future<Output = Result<Self::Body>>>>;
+}
 
-    fn execute_sync<C: ClientSync>(&self, client: &C, factory: &dyn RequestFactory) -> Result<()> {
-        let request = self.build_request(factory).skip_response_body();
-        client.execute(&request)?;
+pub trait FromResponse {
+    type Output;
+    fn from_response_sync<T: ResponseBodySync>(response: T) -> Result<Self::Output>;
+
+    fn from_response_async<T: ResponseBodyAsync + 'static>(
+        response: T,
+    ) -> Pin<Box<dyn Future<Output = Result<Self::Output>>>>;
+}
+
+#[derive(Copy, Clone)]
+pub struct NoResponse {}
+
+impl FromResponse for NoResponse {
+    type Output = ();
+
+    fn from_response_sync<T: ResponseBodySync>(_: T) -> Result<Self::Output> {
         Ok(())
     }
 
-    fn execute_async<'a, C: ClientAsync>(
-        &self,
-        client: &'a C,
-        factory: &dyn RequestFactory,
-    ) -> Pin<Box<dyn Future<Output = Result<()>> + 'a>> {
-        let request = self.build_request(factory).skip_response_body();
+    fn from_response_async<T: ResponseBodyAsync>(
+        _: T,
+    ) -> Pin<Box<dyn Future<Output = Result<Self::Output>>>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+pub struct JsonResponse<T: DeserializeOwned>(PhantomData<T>);
+
+impl<T: DeserializeOwned> FromResponse for JsonResponse<T> {
+    type Output = T;
+
+    fn from_response_sync<R: ResponseBodySync>(response: R) -> Result<Self::Output> {
+        let body = response.get_body()?;
+        let r = serde_json::from_slice(body.as_ref())?;
+        Ok(r)
+    }
+
+    fn from_response_async<R: ResponseBodyAsync + 'static>(
+        response: R,
+    ) -> Pin<Box<dyn Future<Output = Result<Self::Output>>>> {
         Box::pin(async move {
-            client.execute_async(&request).await?;
-            Ok(())
+            let body = response.get_body_async().await?;
+            let r = serde_json::from_slice(body.as_ref())?;
+            Ok(r)
         })
+    }
+}
+
+pub trait Request {
+    type Output: Sized;
+    type Response: FromResponse<Output = Self::Output>;
+
+    fn build_request(&self, factory: &dyn RequestFactory) -> RequestData;
+
+    fn execute_sync<T: ClientSync>(
+        &self,
+        client: &T,
+        factory: &dyn RequestFactory,
+    ) -> Result<Self::Output> {
+        client.execute(self, factory)
+    }
+
+    fn execute_async<T: ClientAsync>(
+        &self,
+        client: &T,
+        factory: &dyn RequestFactory,
+    ) -> Pin<Box<dyn Future<Output = Result<Self::Output>>>> {
+        client.execute_async(self, factory)
     }
 }
 
 /// HTTP Client abstraction Sync.
 pub trait ClientSync: TryFrom<ClientBuilder, Error = anyhow::Error> {
-    fn execute(&self, request: &Request) -> Result<Response>;
+    fn execute<R: Request + ?Sized>(
+        &self,
+        request: &R,
+        factory: &dyn RequestFactory,
+    ) -> Result<R::Output>;
 }
 
 /// HTTP Client abstraction Async.
 pub trait ClientAsync: TryFrom<ClientBuilder, Error = anyhow::Error> {
-    fn execute_async(&self, request: &Request) -> Pin<Box<dyn Future<Output = Result<Response>>>>;
+    fn execute_async<R: Request + ?Sized>(
+        &self,
+        request: &R,
+        factory: &dyn RequestFactory,
+    ) -> Pin<Box<dyn Future<Output = Result<R::Output>>>>;
 }

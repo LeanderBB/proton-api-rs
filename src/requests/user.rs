@@ -1,6 +1,6 @@
 use crate::domain::User;
 use crate::http;
-use crate::http::RequestFactory;
+use crate::http::{JsonResponse, RequestFactory};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -11,10 +11,11 @@ pub struct UserInfoResponse {
 
 pub struct UserInfoRequest {}
 
-impl http::RequestWithBody for UserInfoRequest {
-    type Response = UserInfoResponse;
+impl http::Request for UserInfoRequest {
+    type Output = UserInfoResponse;
+    type Response = JsonResponse<Self::Output>;
 
-    fn build_request(&self, factory: &dyn RequestFactory) -> http::Request {
+    fn build_request(&self, factory: &dyn RequestFactory) -> http::RequestData {
         factory.new_request(http::Method::Get, "core/v4/users")
     }
 }

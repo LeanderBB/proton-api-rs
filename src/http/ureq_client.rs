@@ -1,12 +1,13 @@
 //! UReq HTTP client implementation.
 
-use crate::http::X_PM_APP_VERSION_HEADER;
-use crate::http::{ClientBuilder, ClientSync, Error, Method, Request, Response};
+use crate::http::{ClientBuilder, ClientSync, Error, FromResponse, Method, ResponseBodySync};
+use crate::http::{Request, RequestFactory, X_PM_APP_VERSION_HEADER};
 use crate::requests::APIError;
 use std::io;
 use std::io::Read;
 use ureq;
 
+#[derive(Debug)]
 pub struct UReqClient {
     agent: ureq::Agent,
     app_version: String,
@@ -81,8 +82,25 @@ impl From<ureq::Error> for Error {
     }
 }
 
+struct UReqResponse(ureq::Response);
+
+impl ResponseBodySync for UReqResponse {
+    type Body = Vec<u8>;
+
+    fn get_body(self) -> crate::http::Result<Self::Body> {
+        let body = safe_read_body(self.0)
+            .map_err(|e| Error::Request(anyhow::anyhow!("Failed to read response body {e}")))?;
+        Ok(body)
+    }
+}
+
 impl ClientSync for UReqClient {
-    fn execute(&self, request: &Request) -> Result<Response, Error> {
+    fn execute<R: Request + ?Sized>(
+        &self,
+        r: &R,
+        factory: &dyn RequestFactory,
+    ) -> Result<R::Output, Error> {
+        let request = r.build_request(factory);
         let final_url = format!("{}/{}", self.base_url, request.url);
         let mut ureq_request = match request.method {
             Method::Delete => self.agent.delete(&final_url),
@@ -106,19 +124,7 @@ impl ClientSync for UReqClient {
             ureq_request.call()?
         };
 
-        let status = ureq_response.status();
-
-        if request.skip_response_body {
-            return Ok(Response { status, body: None });
-        }
-
-        let body = safe_read_body(ureq_response)
-            .map_err(|e| Error::Request(anyhow::anyhow!("Failed to read response body {e}")))?;
-
-        Ok(Response {
-            status,
-            body: if !body.is_empty() { Some(body) } else { None },
-        })
+        R::Response::from_response_sync(UReqResponse(ureq_response))
     }
 }
 
