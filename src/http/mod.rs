@@ -133,12 +133,12 @@ impl Proxy {
         };
 
         let auth = if let Some(auth) = &self.auth {
-            format!("{}:{}", auth.username, auth.password.expose_secret())
+            format!("{}:{}@", auth.username, auth.password.expose_secret())
         } else {
             String::new()
         };
 
-        format!("{protocol}://{auth}@{}:{}", self.url, self.port)
+        format!("{protocol}://{auth}{}:{}", self.url, self.port)
     }
 }
 
