@@ -38,7 +38,7 @@
 //!
 //! Login into a new session async:
 //! ```
-//! use proton_api_rs::{http, Session, SessionType};
+//! use proton_api_rs::{http, DefaultSession, SessionType};
 //! async fn example<T:http::ClientAsync>() {
 //!     let client = http::ClientBuilder::new()
 //!         .user_agent("MyUserAgent/0.0.0")
@@ -46,7 +46,7 @@
 //!         .app_version("MyApp@0.1.1")
 //!         .build::<T>().unwrap();
 //!
-//!     let session = match Session::login_async(&client, "my_address@proton.me", "my_proton_password").await.unwrap(){
+//!     let session = match DefaultSession::login_async(&client, "my_address@proton.me", "my_proton_password").await.unwrap(){
 //!         // Session is authenticated, no 2FA verifications necessary.
 //!         SessionType::Authenticated(c) => c,
 //!         // Session needs 2FA TOTP auth.
@@ -64,7 +64,7 @@
 //!
 //! Login into a new session sync:
 //! ```
-//! use proton_api_rs::{http, Session, SessionType};
+//! use proton_api_rs::{DefaultSession, http, Session, SessionType};
 //! fn example<T:http::ClientSync>() {
 //!     let client = http::ClientBuilder::new()
 //!         .user_agent("MyUserAgent/0.0.0")
@@ -72,7 +72,7 @@
 //!         .app_version("MyApp@0.1.1")
 //!         .build::<T>().unwrap();
 //!
-//!     let session = match Session::login(&client, "my_address@proton.me", "my_proton_password").unwrap(){
+//!     let session = match DefaultSession::login(&client, "my_address@proton.me", "my_proton_password").unwrap(){
 //!         // Session is authenticated, no 2FA verifications necessary.
 //!         SessionType::Authenticated(c) => c,
 //!         // Session needs 2FA TOTP auth.
@@ -90,7 +90,7 @@
 //!
 //! Login using a previous sessions token.
 //! ```
-//! use proton_api_rs::{http, Session, SessionType};
+//! use proton_api_rs::{http, DefaultSession, SessionType};
 //! use proton_api_rs::domain::UserUid;
 //!
 //! async fn example<T:http::ClientAsync>() {
@@ -102,7 +102,7 @@
 //!         .app_version("MyApp@0.1.1")
 //!         .build::<T>().unwrap();
 //!
-//!     let session = Session::refresh_async(&client, &user_uid, &user_refresh_token).await.unwrap();
+//!     let session = DefaultSession::refresh_async(&client, &user_uid, &user_refresh_token).await.unwrap();
 //!
 //!     // session is now authenticated and can access the rest of the API.
 //!     // ...
