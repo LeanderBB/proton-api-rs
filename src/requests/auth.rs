@@ -245,7 +245,6 @@ impl<'a> http::Request for AuthRefreshRequest<'a> {
     fn build_request(&self, factory: &dyn RequestFactory) -> RequestData {
         factory
             .new_request(http::Method::Post, "auth/v4/refresh")
-            .header(http::X_PM_UID_HEADER, &self.uid.0)
             .json(AuthRefresh {
                 uid: &self.uid.0,
                 refresh_token: self.token,

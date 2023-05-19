@@ -6,6 +6,7 @@ mod user;
 pub use event::*;
 pub use user::*;
 
+use serde_repr::Deserialize_repr;
 use std::fmt::{Display, Formatter};
 
 pub type SecretString = secrecy::SecretString;
@@ -27,4 +28,11 @@ impl Display for TwoFactorAuth {
             TwoFactorAuth::FIDO2 => "FIDO2".fmt(f),
         }
     }
+}
+
+#[derive(Debug, Deserialize_repr, Eq, PartialEq, Copy, Clone)]
+#[repr(u8)]
+pub enum Boolean {
+    False = 0,
+    True = 1,
 }
