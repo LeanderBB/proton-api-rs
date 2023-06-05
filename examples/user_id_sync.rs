@@ -1,5 +1,5 @@
 use proton_api_rs::clientv2::{ping, SessionType};
-use proton_api_rs::{http, DefaultSession};
+use proton_api_rs::{http, Session};
 use std::io::{BufRead, Write};
 
 fn main() {
@@ -16,7 +16,7 @@ fn main() {
 
     ping(&client).unwrap();
 
-    let session = match DefaultSession::login(&client, &user_email, &user_password).unwrap() {
+    let session = match Session::login(&client, &user_email, &user_password, None).unwrap() {
         SessionType::Authenticated(s) => s,
         SessionType::AwaitingTotp(mut t) => {
             let mut line_reader = std::io::BufReader::new(std::io::stdin());

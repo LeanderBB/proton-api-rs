@@ -1,15 +1,14 @@
+use crate::clientv2::request_repeater::{OnAuthRefreshedCallback, RequestRepeater};
 use crate::clientv2::TotpSession;
 use crate::domain::{Event, EventId, TwoFactorAuth, User, UserUid};
-use crate::http::{DefaultRequestFactory, Request, RequestFactory};
+use crate::http;
+use crate::http::{DefaultRequestFactory, Request};
 use crate::requests::{
     AuthInfoRequest, AuthInfoResponse, AuthRefreshRequest, AuthRequest, AuthResponse,
     GetEventRequest, GetLatestEventRequest, LogoutRequest, TFAStatus, UserAuth, UserInfoRequest,
 };
-use crate::{http, AutoAuthRefreshRequestPolicy};
 use go_srp::SRPAuth;
 use secrecy::Secret;
-use std::future::Future;
-use std::pin::Pin;
 
 #[derive(Debug, thiserror::Error)]
 pub enum LoginError {
@@ -27,53 +26,29 @@ pub enum LoginError {
     SRPProof(String),
 }
 
-/// Trait to access the underlying user authentication data in a session policy.
-pub trait UserAuthFromSessionRequestPolicy {
-    fn user_auth(&self) -> &UserAuth;
-    fn user_auth_mut(&mut self) -> &mut UserAuth;
-}
-
 /// Data which can be used to save a session and restore it later.
 pub struct SessionRefreshData {
     pub user_uid: Secret<UserUid>,
     pub token: Secret<String>,
 }
 
-/// Session Request Policy can be used to add custom behavior to a session request, such as
-/// retrying on network errors, respecting 429 codes, etc...
-pub trait SessionRequestPolicy: From<UserAuth> + RequestFactory {
-    fn execute<C: http::ClientSync, R: Request>(
-        &self,
-        client: &C,
-        request: R,
-    ) -> http::Result<R::Output>;
-
-    fn execute_async<'a, C: http::ClientAsync, R: Request + 'a>(
-        &'a self,
-        client: &'a C,
-        request: R,
-    ) -> Pin<Box<dyn Future<Output = http::Result<R::Output>> + 'a>>;
-
-    fn get_refresh_data(&self) -> SessionRefreshData;
-}
-
 #[derive(Debug)]
-pub enum SessionType<P: SessionRequestPolicy> {
-    Authenticated(Session<P>),
-    AwaitingTotp(TotpSession<P>),
+pub enum SessionType {
+    Authenticated(Session),
+    AwaitingTotp(TotpSession),
 }
 
 /// Authenticated Session from which one can access data/functionality restricted to authenticated
 /// users.
 #[derive(Debug)]
-pub struct Session<P: SessionRequestPolicy> {
-    pub(super) policy: P,
+pub struct Session {
+    pub(super) repeater: RequestRepeater,
 }
 
-impl<P: SessionRequestPolicy> Session<P> {
-    fn new(user: UserAuth) -> Self {
+impl Session {
+    fn new(user: UserAuth, on_auth_refreshed_cb: Option<OnAuthRefreshedCallback>) -> Self {
         Self {
-            policy: P::from(user),
+            repeater: RequestRepeater::new(user, on_auth_refreshed_cb),
         }
     }
 
@@ -81,7 +56,8 @@ impl<P: SessionRequestPolicy> Session<P> {
         client: &T,
         username: &str,
         password: &str,
-    ) -> Result<SessionType<P>, LoginError> {
+        on_auth_refreshed: Option<OnAuthRefreshedCallback>,
+    ) -> Result<SessionType, LoginError> {
         let auth_info_response =
             AuthInfoRequest { username }.execute_sync::<T>(client, &DefaultRequestFactory {})?;
 
@@ -95,14 +71,15 @@ impl<P: SessionRequestPolicy> Session<P> {
         }
         .execute_sync::<T>(client, &DefaultRequestFactory {})?;
 
-        validate_server_proof(&proof, &auth_response)
+        validate_server_proof(&proof, &auth_response, on_auth_refreshed)
     }
 
     pub async fn login_async<T: http::ClientAsync>(
         client: &T,
         username: &str,
         password: &str,
-    ) -> Result<SessionType<P>, LoginError> {
+        on_auth_refreshed: Option<OnAuthRefreshedCallback>,
+    ) -> Result<SessionType, LoginError> {
         let auth_info_response = AuthInfoRequest { username }
             .execute_async::<T>(client, &DefaultRequestFactory {})
             .await?;
@@ -118,34 +95,36 @@ impl<P: SessionRequestPolicy> Session<P> {
         .execute_async::<T>(client, &DefaultRequestFactory {})
         .await?;
 
-        validate_server_proof(&proof, &auth_response)
+        validate_server_proof(&proof, &auth_response, on_auth_refreshed)
     }
 
     pub async fn refresh_async<T: http::ClientAsync>(
         client: &T,
         user_uid: &UserUid,
         token: &str,
+        on_auth_refreshed: Option<OnAuthRefreshedCallback>,
     ) -> http::Result<Self> {
         let refresh_response = AuthRefreshRequest::new(user_uid, token)
             .execute_async(client, &DefaultRequestFactory {})
             .await?;
         let user = UserAuth::from_auth_refresh_response(&refresh_response);
-        Ok(Session::new(user))
+        Ok(Session::new(user, on_auth_refreshed))
     }
 
     pub fn refresh<T: http::ClientSync>(
         client: &T,
         user_uid: &UserUid,
         token: &str,
+        on_auth_refreshed: Option<OnAuthRefreshedCallback>,
     ) -> http::Result<Self> {
         let refresh_response = AuthRefreshRequest::new(user_uid, token)
             .execute_sync(client, &DefaultRequestFactory {})?;
         let user = UserAuth::from_auth_refresh_response(&refresh_response);
-        Ok(Session::new(user))
+        Ok(Session::new(user, on_auth_refreshed))
     }
 
     pub fn get_user<T: http::ClientSync>(&self, client: &T) -> Result<User, http::Error> {
-        let user = self.policy.execute(client, UserInfoRequest {})?;
+        let user = self.repeater.execute(client, UserInfoRequest {})?;
         Ok(user.user)
     }
 
@@ -154,24 +133,24 @@ impl<P: SessionRequestPolicy> Session<P> {
         client: &T,
     ) -> Result<User, http::Error> {
         let user = self
-            .policy
+            .repeater
             .execute_async(client, UserInfoRequest {})
             .await?;
         Ok(user.user)
     }
 
     pub fn logout<T: http::ClientSync>(&self, client: &T) -> Result<(), http::Error> {
-        LogoutRequest {}.execute_sync::<T>(client, &self.policy)
+        LogoutRequest {}.execute_sync::<T>(client, &self.repeater)
     }
 
     pub async fn logout_async<T: http::ClientAsync>(&self, client: &T) -> Result<(), http::Error> {
         LogoutRequest {}
-            .execute_async::<T>(client, &self.policy)
+            .execute_async::<T>(client, &self.repeater)
             .await
     }
 
     pub fn get_latest_event<T: http::ClientSync>(&self, client: &T) -> http::Result<EventId> {
-        let r = self.policy.execute(client, GetLatestEventRequest {})?;
+        let r = self.repeater.execute(client, GetLatestEventRequest {})?;
         Ok(r.event_id)
     }
 
@@ -180,14 +159,14 @@ impl<P: SessionRequestPolicy> Session<P> {
         client: &T,
     ) -> http::Result<EventId> {
         let r = self
-            .policy
+            .repeater
             .execute_async(client, GetLatestEventRequest {})
             .await?;
         Ok(r.event_id)
     }
 
     pub fn get_event<T: http::ClientSync>(&self, client: &T, id: &EventId) -> http::Result<Event> {
-        self.policy.execute(client, GetEventRequest::new(id))
+        self.repeater.execute(client, GetEventRequest::new(id))
     }
 
     pub async fn get_event_async<T: http::ClientAsync>(
@@ -195,21 +174,13 @@ impl<P: SessionRequestPolicy> Session<P> {
         client: &T,
         id: &EventId,
     ) -> http::Result<Event> {
-        self.policy
+        self.repeater
             .execute_async(client, GetEventRequest::new(id))
             .await
     }
 
     pub fn get_refresh_data(&self) -> SessionRefreshData {
-        self.policy.get_refresh_data()
-    }
-}
-
-impl<T: SessionRequestPolicy + UserAuthFromSessionRequestPolicy>
-    Session<AutoAuthRefreshRequestPolicy<T>>
-{
-    pub fn was_auth_refreshed(&self) -> bool {
-        self.policy.was_auth_refreshed()
+        self.repeater.get_refresh_data()
     }
 }
 
@@ -229,10 +200,11 @@ fn generate_session_proof(
     .map_err(LoginError::ServerProof)
 }
 
-fn validate_server_proof<P: SessionRequestPolicy>(
+fn validate_server_proof(
     proof: &SRPAuth,
     auth_response: &AuthResponse,
-) -> Result<SessionType<P>, LoginError> {
+    on_auth_refreshed: Option<OnAuthRefreshedCallback>,
+) -> Result<SessionType, LoginError> {
     if proof.expected_server_proof != auth_response.server_proof {
         return Err(LoginError::ServerProof(
             "Server Proof does not match".to_string(),
@@ -241,7 +213,7 @@ fn validate_server_proof<P: SessionRequestPolicy>(
 
     let user = UserAuth::from_auth_response(auth_response);
 
-    let session = Session::new(user);
+    let session = Session::new(user, on_auth_refreshed);
 
     match auth_response.tfa.enabled {
         TFAStatus::None => Ok(SessionType::Authenticated(session)),

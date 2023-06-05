@@ -1,18 +1,18 @@
 use crate::clientv2::Session;
+use crate::http;
 use crate::http::Request;
 use crate::requests::TOTPRequest;
-use crate::{http, SessionRequestPolicy};
 
 #[derive(Debug)]
-pub struct TotpSession<P: SessionRequestPolicy>(pub(super) Session<P>);
+pub struct TotpSession(pub(super) Session);
 
-impl<P: SessionRequestPolicy> TotpSession<P> {
+impl TotpSession {
     pub fn submit_totp<T: http::ClientSync>(
         self,
         client: &T,
         code: &str,
-    ) -> Result<Session<P>, (Self, http::Error)> {
-        match TOTPRequest::new(code).execute_sync(client, &self.0.policy) {
+    ) -> Result<Session, (Self, http::Error)> {
+        match TOTPRequest::new(code).execute_sync(client, &self.0.repeater) {
             Err(e) => Err((self, e)),
             Ok(_) => Ok(self.0),
         }
@@ -22,9 +22,9 @@ impl<P: SessionRequestPolicy> TotpSession<P> {
         self,
         client: &T,
         code: &str,
-    ) -> Result<Session<P>, (Self, http::Error)> {
+    ) -> Result<Session, (Self, http::Error)> {
         match TOTPRequest::new(code)
-            .execute_async(client, &self.0.policy)
+            .execute_async(client, &self.0.repeater)
             .await
         {
             Err(e) => Err((self, e)),

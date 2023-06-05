@@ -1,9 +1,9 @@
 mod client;
+mod request_repeater;
 mod session;
-mod session_policies;
 mod totp;
 
 pub use client::*;
+pub use request_repeater::*;
 pub use session::*;
-pub use session_policies::*;
 pub use totp::*;
