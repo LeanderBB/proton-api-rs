@@ -1,6 +1,8 @@
-use crate::domain::{SecretString, UserUid};
+use crate::domain::{HumanVerificationLoginData, SecretString, UserUid};
 use crate::http;
-use crate::http::{RequestData, RequestFactory};
+use crate::http::{
+    RequestData, RequestFactory, X_PM_HUMAN_VERIFICATION_TOKEN, X_PM_HUMAN_VERIFICATION_TOKEN_TYPE,
+};
 use secrecy::Secret;
 use serde::{Deserialize, Serialize};
 use serde_repr::Deserialize_repr;
@@ -45,6 +47,8 @@ pub struct AuthRequest<'a> {
     pub client_proof: &'a str,
     #[serde(rename = "SRPSession")]
     pub srp_session: &'a str,
+    #[serde(skip)]
+    pub human_verification: Option<HumanVerificationLoginData>,
 }
 
 impl<'a> http::Request for AuthRequest<'a> {
@@ -52,9 +56,18 @@ impl<'a> http::Request for AuthRequest<'a> {
     type Response = http::JsonResponse<Self::Output>;
 
     fn build_request(&self, factory: &dyn RequestFactory) -> RequestData {
-        factory
+        let mut request = factory
             .new_request(http::Method::Post, "auth/v4")
-            .json(self)
+            .json(self);
+
+        if let Some(hv) = &self.human_verification {
+            // repeat submission with x-pm-human-verification-token and x-pm-human-verification-token-type
+            request = request
+                .header(X_PM_HUMAN_VERIFICATION_TOKEN, &hv.token)
+                .header(X_PM_HUMAN_VERIFICATION_TOKEN_TYPE, hv.hv_type.as_str())
+        }
+
+        request
     }
 }
 
@@ -116,6 +129,7 @@ pub struct FIDOKey<'a> {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 pub struct FIDO2Info<'a> {
+    pub authentication_options: serde_json::Value,
     pub registered_keys: Vec<FIDOKey<'a>>,
 }
 
@@ -263,5 +277,30 @@ impl http::Request for LogoutRequest {
 
     fn build_request(&self, factory: &dyn RequestFactory) -> RequestData {
         factory.new_request(http::Method::Delete, "auth/v4")
+    }
+}
+
+pub struct CaptchaRequest<'a> {
+    token: &'a str,
+    force_web: bool,
+}
+
+impl<'a> CaptchaRequest<'a> {
+    pub fn new(token: &'a str, force_web: bool) -> Self {
+        Self { token, force_web }
+    }
+}
+
+impl<'a> http::Request for CaptchaRequest<'a> {
+    type Output = String;
+    type Response = http::StringResponse;
+
+    fn build_request(&self, factory: &dyn RequestFactory) -> RequestData {
+        let url = if self.force_web {
+            format!("core/v4/captcha?ForceWebMessaging=1&Token={}", self.token)
+        } else {
+            format!("core/v4/captcha?Token={}", self.token)
+        };
+        factory.new_request(http::Method::Get, &url)
     }
 }

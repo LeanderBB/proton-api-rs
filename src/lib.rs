@@ -46,7 +46,7 @@
 //!         .app_version("MyApp@0.1.1")
 //!         .build::<T>().unwrap();
 //!
-//!     let session = match Session::login_async(&client, "my_address@proton.me", "my_proton_password", None).await.unwrap(){
+//!     let session = match Session::login_async(&client, "my_address@proton.me", "my_proton_password", None, None).await.unwrap(){
 //!         // Session is authenticated, no 2FA verifications necessary.
 //!         SessionType::Authenticated(c) => c,
 //!         // Session needs 2FA TOTP auth.
@@ -72,7 +72,7 @@
 //!         .app_version("MyApp@0.1.1")
 //!         .build::<T>().unwrap();
 //!
-//!     let session = match Session::login(&client, "my_address@proton.me", "my_proton_password", None).unwrap(){
+//!     let session = match Session::login(&client, "my_address@proton.me", "my_proton_password", None, None).unwrap(){
 //!         // Session is authenticated, no 2FA verifications necessary.
 //!         SessionType::Authenticated(c) => c,
 //!         // Session needs 2FA TOTP auth.

@@ -3,6 +3,7 @@
 use crate::http::{ClientBuilder, ClientSync, Error, FromResponse, Method, ResponseBodySync};
 use crate::http::{Request, RequestFactory, X_PM_APP_VERSION_HEADER};
 use crate::requests::APIError;
+use log::debug;
 use std::io;
 use std::io::Read;
 use ureq;
@@ -12,6 +13,7 @@ pub struct UReqClient {
     agent: ureq::Agent,
     app_version: String,
     base_url: String,
+    debug: bool,
 }
 
 impl TryFrom<ClientBuilder> for UReqClient {
@@ -44,6 +46,7 @@ impl TryFrom<ClientBuilder> for UReqClient {
             agent,
             app_version: value.app_version,
             base_url: value.base_url,
+            debug: value.debug,
         })
     }
 }
@@ -94,6 +97,22 @@ impl ResponseBodySync for UReqResponse {
     }
 }
 
+struct UReqDebugResponse(ureq::Response);
+
+impl ResponseBodySync for UReqDebugResponse {
+    type Body = Vec<u8>;
+
+    fn get_body(self) -> crate::http::Result<Self::Body> {
+        let body = safe_read_body(self.0)
+            .map_err(|e| Error::Request(anyhow::anyhow!("Failed to read response body {e}")))?;
+
+        let body_str = String::from_utf8_lossy(&body);
+        debug!("Request Body:\n{body_str}");
+
+        Ok(body)
+    }
+}
+
 impl ClientSync for UReqClient {
     fn execute<R: Request + ?Sized>(
         &self,
@@ -124,7 +143,11 @@ impl ClientSync for UReqClient {
             ureq_request.call()?
         };
 
-        R::Response::from_response_sync(UReqResponse(ureq_response))
+        if !self.debug {
+            R::Response::from_response_sync(UReqResponse(ureq_response))
+        } else {
+            R::Response::from_response_sync(UReqDebugResponse(ureq_response))
+        }
     }
 }
 

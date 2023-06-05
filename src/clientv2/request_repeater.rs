@@ -1,18 +1,20 @@
 //! Automatic request repeater based on the expectations Proton has for their clients.
 
-use crate::domain::UserUid;
+use crate::domain::{SecretString, UserUid};
 use crate::http::{
     ClientAsync, ClientSync, DefaultRequestFactory, Method, Request, RequestData, RequestFactory,
 };
 use crate::requests::{AuthRefreshRequest, UserAuth};
 use crate::{http, SessionRefreshData};
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, Secret};
 
-pub type OnAuthRefreshedCallback = Box<dyn Fn(&UserUid, &str)>;
+pub trait OnAuthRefreshed: Send + Sync {
+    fn on_auth_refreshed(&self, user: &Secret<UserUid>, token: &SecretString);
+}
 
 pub struct RequestRepeater {
     user_auth: parking_lot::RwLock<UserAuth>,
-    on_auth_refreshed: Option<OnAuthRefreshedCallback>,
+    on_auth_refreshed: Option<Box<dyn OnAuthRefreshed>>,
 }
 
 impl std::fmt::Debug for RequestRepeater {
@@ -31,7 +33,7 @@ impl std::fmt::Debug for RequestRepeater {
 }
 
 impl RequestRepeater {
-    pub fn new(user_auth: UserAuth, on_auth_refreshed: Option<OnAuthRefreshedCallback>) -> Self {
+    pub fn new(user_auth: UserAuth, on_auth_refreshed: Option<Box<dyn OnAuthRefreshed>>) -> Self {
         Self {
             user_auth: parking_lot::RwLock::new(user_auth),
             on_auth_refreshed,
@@ -50,10 +52,7 @@ impl RequestRepeater {
                 let mut borrow = self.user_auth.write();
                 *borrow = UserAuth::from_auth_refresh_response(&s);
                 if let Some(cb) = &self.on_auth_refreshed {
-                    (cb)(
-                        borrow.uid.expose_secret(),
-                        borrow.access_token.expose_secret(),
-                    );
+                    cb.on_auth_refreshed(&borrow.uid, &borrow.access_token);
                 }
                 Ok(())
             }
@@ -75,10 +74,7 @@ impl RequestRepeater {
                 let mut borrow = self.user_auth.write();
                 *borrow = UserAuth::from_auth_refresh_response(&s);
                 if let Some(cb) = &self.on_auth_refreshed {
-                    (cb)(
-                        borrow.uid.expose_secret(),
-                        borrow.access_token.expose_secret(),
-                    );
+                    cb.on_auth_refreshed(&borrow.uid, &borrow.access_token);
                 }
                 Ok(())
             }
@@ -105,6 +101,8 @@ impl RequestRepeater {
 
                         // Execute request again
                         return request.execute_sync(client, self);
+                    } else if api_err.http_code == 422 && api_err.http_code == 9001 {
+                        //TODO: Handle captcha .....
                     }
                 }
                 Err(original_error)

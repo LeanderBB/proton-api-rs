@@ -16,7 +16,7 @@ async fn main() {
 
     ping_async(&client).await.unwrap();
 
-    let session = match Session::login_async(&client, &user_email, &user_password, None)
+    let session = match Session::login_async(&client, &user_email, &user_password, None, None)
         .await
         .unwrap()
     {

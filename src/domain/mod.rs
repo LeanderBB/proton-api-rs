@@ -1,9 +1,11 @@
 //! Domain Types.
 
 mod event;
+mod human_verification;
 mod user;
 
 pub use event::*;
+pub use human_verification::*;
 pub use user::*;
 
 use serde_repr::Deserialize_repr;

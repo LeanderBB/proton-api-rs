@@ -23,6 +23,8 @@ pub(crate) const DEFAULT_APP_VERSION: &str = "proton-api-rs";
 #[allow(unused)] // it is used by the http implementations
 pub(crate) const X_PM_APP_VERSION_HEADER: &str = "X-Pm-Appversion";
 pub(crate) const X_PM_UID_HEADER: &str = "X-Pm-Uid";
+pub(crate) const X_PM_HUMAN_VERIFICATION_TOKEN: &str = "X-Pm-Human-Verification-Token";
+pub(crate) const X_PM_HUMAN_VERIFICATION_TOKEN_TYPE: &str = "X-Pm-Human-Verification-Token-Type";
 
 /// HTTP method.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
@@ -151,6 +153,7 @@ pub struct ClientBuilder {
     connect_timeout: Option<Duration>,
     user_agent: String,
     proxy_url: Option<Proxy>,
+    debug: bool,
 }
 
 impl Default for ClientBuilder {
@@ -168,6 +171,7 @@ impl ClientBuilder {
             request_timeout: None,
             connect_timeout: None,
             proxy_url: None,
+            debug: false,
         }
     }
 
@@ -205,6 +209,12 @@ impl ClientBuilder {
     /// Specify proxy URL for the builder.
     pub fn with_proxy(mut self, proxy: Proxy) -> Self {
         self.proxy_url = Some(proxy);
+        self
+    }
+
+    /// Enable request debugging.
+    pub fn debug(mut self) -> Self {
+        self.debug = true;
         self
     }
 
@@ -285,6 +295,27 @@ impl<T: DeserializeOwned> FromResponse for JsonResponse<T> {
             let body = response.get_body_async().await?;
             let r = serde_json::from_slice(body.as_ref())?;
             Ok(r)
+        })
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct StringResponse {}
+
+impl FromResponse for StringResponse {
+    type Output = String;
+
+    fn from_response_sync<R: ResponseBodySync>(response: R) -> Result<Self::Output> {
+        let body = response.get_body()?;
+        Ok(String::from_utf8_lossy(body.as_ref()).to_string())
+    }
+
+    fn from_response_async<R: ResponseBodyAsync + 'static>(
+        response: R,
+    ) -> Pin<Box<dyn Future<Output = Result<Self::Output>>>> {
+        Box::pin(async move {
+            let body = response.get_body_async().await?;
+            Ok(String::from_utf8_lossy(body.as_ref()).to_string())
         })
     }
 }

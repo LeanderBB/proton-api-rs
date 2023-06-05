@@ -1,12 +1,14 @@
-use crate::clientv2::request_repeater::{OnAuthRefreshedCallback, RequestRepeater};
+use crate::clientv2::request_repeater::RequestRepeater;
 use crate::clientv2::TotpSession;
-use crate::domain::{Event, EventId, TwoFactorAuth, User, UserUid};
-use crate::http;
+use crate::domain::{
+    Event, EventId, HumanVerification, HumanVerificationLoginData, TwoFactorAuth, User, UserUid,
+};
 use crate::http::{DefaultRequestFactory, Request};
 use crate::requests::{
     AuthInfoRequest, AuthInfoResponse, AuthRefreshRequest, AuthRequest, AuthResponse,
     GetEventRequest, GetLatestEventRequest, LogoutRequest, TFAStatus, UserAuth, UserInfoRequest,
 };
+use crate::{http, OnAuthRefreshed};
 use go_srp::SRPAuth;
 use secrecy::Secret;
 
@@ -22,6 +24,8 @@ pub enum LoginError {
     ServerProof(String),
     #[error("Account 2FA method ({0})is not supported")]
     Unsupported2FA(TwoFactorAuth),
+    #[error("Human Verification Required'")]
+    HumanVerificationRequired(HumanVerification),
     #[error("Failed to calculate SRP Proof: {0}")]
     SRPProof(String),
 }
@@ -46,7 +50,7 @@ pub struct Session {
 }
 
 impl Session {
-    fn new(user: UserAuth, on_auth_refreshed_cb: Option<OnAuthRefreshedCallback>) -> Self {
+    fn new(user: UserAuth, on_auth_refreshed_cb: Option<Box<dyn OnAuthRefreshed>>) -> Self {
         Self {
             repeater: RequestRepeater::new(user, on_auth_refreshed_cb),
         }
@@ -56,7 +60,8 @@ impl Session {
         client: &T,
         username: &str,
         password: &str,
-        on_auth_refreshed: Option<OnAuthRefreshedCallback>,
+        human_verification: Option<HumanVerificationLoginData>,
+        on_auth_refreshed: Option<Box<dyn OnAuthRefreshed>>,
     ) -> Result<SessionType, LoginError> {
         let auth_info_response =
             AuthInfoRequest { username }.execute_sync::<T>(client, &DefaultRequestFactory {})?;
@@ -68,8 +73,10 @@ impl Session {
             client_ephemeral: &proof.client_ephemeral,
             client_proof: &proof.client_proof,
             srp_session: auth_info_response.srp_session.as_ref(),
+            human_verification,
         }
-        .execute_sync::<T>(client, &DefaultRequestFactory {})?;
+        .execute_sync::<T>(client, &DefaultRequestFactory {})
+        .map_err(map_human_verification_err)?;
 
         validate_server_proof(&proof, &auth_response, on_auth_refreshed)
     }
@@ -78,7 +85,8 @@ impl Session {
         client: &T,
         username: &str,
         password: &str,
-        on_auth_refreshed: Option<OnAuthRefreshedCallback>,
+        human_verification: Option<HumanVerificationLoginData>,
+        on_auth_refreshed: Option<Box<dyn OnAuthRefreshed>>,
     ) -> Result<SessionType, LoginError> {
         let auth_info_response = AuthInfoRequest { username }
             .execute_async::<T>(client, &DefaultRequestFactory {})
@@ -91,9 +99,11 @@ impl Session {
             client_ephemeral: &proof.client_ephemeral,
             client_proof: &proof.client_proof,
             srp_session: auth_info_response.srp_session.as_ref(),
+            human_verification,
         }
         .execute_async::<T>(client, &DefaultRequestFactory {})
-        .await?;
+        .await
+        .map_err(map_human_verification_err)?;
 
         validate_server_proof(&proof, &auth_response, on_auth_refreshed)
     }
@@ -102,7 +112,7 @@ impl Session {
         client: &T,
         user_uid: &UserUid,
         token: &str,
-        on_auth_refreshed: Option<OnAuthRefreshedCallback>,
+        on_auth_refreshed: Option<Box<dyn OnAuthRefreshed>>,
     ) -> http::Result<Self> {
         let refresh_response = AuthRefreshRequest::new(user_uid, token)
             .execute_async(client, &DefaultRequestFactory {})
@@ -115,7 +125,7 @@ impl Session {
         client: &T,
         user_uid: &UserUid,
         token: &str,
-        on_auth_refreshed: Option<OnAuthRefreshedCallback>,
+        on_auth_refreshed: Option<Box<dyn OnAuthRefreshed>>,
     ) -> http::Result<Self> {
         let refresh_response = AuthRefreshRequest::new(user_uid, token)
             .execute_sync(client, &DefaultRequestFactory {})?;
@@ -203,7 +213,7 @@ fn generate_session_proof(
 fn validate_server_proof(
     proof: &SRPAuth,
     auth_response: &AuthResponse,
-    on_auth_refreshed: Option<OnAuthRefreshedCallback>,
+    on_auth_refreshed: Option<Box<dyn OnAuthRefreshed>>,
 ) -> Result<SessionType, LoginError> {
     if proof.expected_server_proof != auth_response.server_proof {
         return Err(LoginError::ServerProof(
@@ -220,4 +230,14 @@ fn validate_server_proof(
         TFAStatus::Totp => Ok(SessionType::AwaitingTotp(TotpSession(session))),
         TFAStatus::FIDO2 => Err(LoginError::Unsupported2FA(TwoFactorAuth::FIDO2)),
     }
+}
+
+fn map_human_verification_err(e: http::Error) -> LoginError {
+    if let http::Error::API(e) = &e {
+        if let Ok(hv) = e.try_get_human_verification_details() {
+            return LoginError::HumanVerificationRequired(hv);
+        }
+    }
+
+    LoginError::from(e)
 }
