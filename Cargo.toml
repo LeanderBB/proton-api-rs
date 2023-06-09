@@ -1,7 +1,7 @@
 [package]
 name = "proton-api-rs"
 authors = ["Leander Beernaert <lbb-dev@pm.me>"]
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 license = "AGPL-3.0-only"
 description = "Unofficial implemention of proton REST API in rust"
@@ -42,7 +42,7 @@ optional = true
 [dev-dependencies]
 env_logger = "0.10"
 tokio = {version ="1", features = ["full"]}
-wry = {version = "0.28"}
+#wry = {version = "0.28"}
 
 [[example]]
 name = "user_id"
@@ -52,6 +52,7 @@ required-features = ["http-reqwest"]
 name = "user_id_sync"
 required-features = ["http-ureq"]
 
-[[example]]
-name = "captcha"
-required-features = ["http-ureq"]
+#Enable wry dependency when trying this example.
+#[[example]]
+#name = "captcha"
+#required-features = ["http-ureq"]

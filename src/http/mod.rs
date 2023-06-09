@@ -95,13 +95,15 @@ pub enum Error {
     Connection(#[source] anyhow::Error),
     #[error("Request/Response body error: {0}")]
     Request(#[source] anyhow::Error),
+    #[error("Encoding/Decoding error: {0}")]
+    EncodeOrDecode(#[source] anyhow::Error),
     #[error("Unexpected error occurred: {0}")]
     Other(#[source] anyhow::Error),
 }
 
 impl From<serde_json::Error> for Error {
     fn from(value: serde_json::Error) -> Self {
-        Self::Request(value.into())
+        Self::EncodeOrDecode(value.into())
     }
 }
 
