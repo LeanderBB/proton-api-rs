@@ -150,3 +150,73 @@ impl RequestFactory for RequestRepeater {
             .bearer_token(accessor.access_token.expose_secret())
     }
 }
+
+#[cfg(test)]
+mod test {
+
+    #[test]
+    #[cfg(feature = "http-ureq")]
+    fn request_repeats_with_401() {
+        use crate::domain::{EventId, SecretString, UserUid};
+        use crate::http::X_PM_UID_HEADER;
+        use crate::requests::{GetLatestEventRequest, UserAuth};
+        use crate::RequestRepeater;
+        use httpmock::prelude::*;
+        use secrecy::Secret;
+
+        let server = MockServer::start();
+        let url = server.base_url();
+
+        let client = crate::http::ClientBuilder::new()
+            .base_url(&url)
+            .build::<crate::http::ureq_client::UReqClient>()
+            .unwrap();
+
+        let repeater = RequestRepeater::new(
+            UserAuth {
+                uid: Secret::new(UserUid("test-uid".to_string())),
+                access_token: SecretString::new("secret-token".to_string()),
+                refresh_token: SecretString::new("refresh-token".to_string()),
+            },
+            None,
+        );
+
+        let expected_latest_event_id = EventId("My_Event_Id".to_string());
+
+        let latest_event_first_call = server.mock(|when, then| {
+            when.method(GET)
+                .path("/core/v4/events/latest")
+                .header(X_PM_UID_HEADER, "test-uid");
+            then.status(401);
+        });
+
+        let latest_event_second_call = server.mock(|when, then| {
+            when.method(GET)
+                .path("/core/v4/events/latest")
+                .header(X_PM_UID_HEADER, "User_UID");
+            then.status(200)
+                .body(format!(r#"{{"EventID":"{}"}}"#, expected_latest_event_id.0));
+        });
+
+        let refresh_mock = server.mock(|when, then| {
+            when.method(POST).path("/auth/v4/refresh");
+
+            let response = r#"{
+    "UID": "User_UID",
+    "TokenType": "type",
+    "AccessToken": "access-token",
+    "RefreshToken": "refresh-token",
+    "Scope": "Scope"
+}"#;
+
+            then.status(200).body(response);
+        });
+
+        let latest_event = repeater.execute(&client, GetLatestEventRequest {}).unwrap();
+        assert_eq!(latest_event.event_id, expected_latest_event_id);
+
+        latest_event_first_call.assert();
+        refresh_mock.assert();
+        latest_event_second_call.assert();
+    }
+}
