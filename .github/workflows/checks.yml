@@ -55,6 +55,6 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Check formatting
+      - name: Run Clippy
         run: cargo clippy -- -D warnings
 

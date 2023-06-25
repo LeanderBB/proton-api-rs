@@ -11,8 +11,6 @@ readme = "README.md"
 keywords = ["proton", "rest", "api"]
 categories = ["api-bindings"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 go-srp = {path = "go-srp", version = "0.1.5"}
 thiserror = "1"
@@ -42,7 +40,6 @@ optional = true
 [dev-dependencies]
 env_logger = "0.10"
 tokio = {version ="1", features = ["full"]}
-#wry = {version = "0.28"}
 
 [[example]]
 name = "user_id"
@@ -51,8 +48,3 @@ required-features = ["http-reqwest"]
 [[example]]
 name = "user_id_sync"
 required-features = ["http-ureq"]
-
-#Enable wry dependency when trying this example.
-#[[example]]
-#name = "captcha"
-#required-features = ["http-ureq"]

@@ -101,8 +101,6 @@ impl RequestRepeater {
 
                         // Execute request again
                         return request.execute_sync(client, self);
-                    } else if api_err.http_code == 422 && api_err.http_code == 9001 {
-                        //TODO: Handle captcha .....
                     }
                 }
                 Err(original_error)
