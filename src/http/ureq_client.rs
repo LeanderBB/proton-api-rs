@@ -35,8 +35,12 @@ impl TryFrom<ClientBuilder> for UReqClient {
             builder = builder.proxy(proxy);
         }
 
+        #[cfg(not(test))]
+        {
+            builder = builder.https_only(true)
+        }
+
         let agent = builder
-            .https_only(true)
             .user_agent(&value.user_agent)
             .max_idle_connections(0)
             .max_idle_connections_per_host(0)
