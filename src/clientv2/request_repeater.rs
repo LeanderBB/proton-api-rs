@@ -41,7 +41,7 @@ impl RequestRepeater {
     }
 
     fn refresh_auth<C: ClientSync>(&self, client: &C) -> http::Result<()> {
-        let borrow = self.user_auth.read();
+        let mut borrow = self.user_auth.write();
         match AuthRefreshRequest::new(
             borrow.uid.expose_secret(),
             borrow.refresh_token.expose_secret(),
@@ -49,7 +49,6 @@ impl RequestRepeater {
         .execute_sync(client, &DefaultRequestFactory {})
         {
             Ok(s) => {
-                let mut borrow = self.user_auth.write();
                 *borrow = UserAuth::from_auth_refresh_response(&s);
                 if let Some(cb) = &self.on_auth_refreshed {
                     cb.on_auth_refreshed(&borrow.uid, &borrow.access_token);
@@ -62,7 +61,7 @@ impl RequestRepeater {
 
     async fn refresh_auth_async<C: ClientAsync>(&self, client: &C) -> http::Result<()> {
         // Have to clone here due to async boundaries.
-        let user_auth = self.user_auth.read().clone();
+        let user_auth = { self.user_auth.read().clone() };
         match AuthRefreshRequest::new(
             user_auth.uid.expose_secret(),
             user_auth.refresh_token.expose_secret(),
