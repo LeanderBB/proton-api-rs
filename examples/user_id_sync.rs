@@ -1,6 +1,5 @@
 use proton_api_rs::clientv2::{ping, SessionType};
-use proton_api_rs::domain::CaptchaErrorDetail;
-use proton_api_rs::{captcha_get, http, LoginError, Session};
+use proton_api_rs::{http, Session};
 use std::io::{BufRead, Write};
 
 fn main() {
@@ -12,53 +11,13 @@ fn main() {
 
     let client = http::ClientBuilder::new()
         .app_version(&app_version)
+        .debug()
         .build::<http::ureq_client::UReqClient>()
         .unwrap();
 
     ping(&client).unwrap();
 
-    let login_result = Session::login(&client, &user_email, &user_password, None);
-    if let Err(LoginError::Request(http::Error::API(e))) = &login_result {
-        if e.api_code != 9001 {
-            panic!("{e}")
-        }
-        let captcha_desc =
-            serde_json::from_value::<CaptchaErrorDetail>(e.details.clone().unwrap()).unwrap();
-
-        let captcha_body = captcha_get(&client, &captcha_desc.human_verification_token).unwrap();
-        run_captcha(captcha_body);
-        // TODO: Start webview with the downloaded body - use https://github.com/tauri-apps/wry
-        // Click
-        // Handle postMessageToParent which has token & token type
-        // repeat submission with x-pm-human-verification-token and x-pm-human-verification-token-type
-        // Use the event below to catch this
-        // window.addEventListener(
-        //   "message",
-        //   (event) => {
-        //      -> event.Data
-        //   },
-        //   false
-        // );
-        // On Success
-        // postMessageToParent({
-        //                 "type": "pm_captcha",
-        //                 "token": response
-        //             });
-        //
-        // on expired
-        // postMessageToParent({
-        //                 "type": "pm_captcha_expired",
-        //                 "token": response
-        //             });
-        //
-        // on height:
-        // postMessageToParent({
-        //                 'type': 'pm_height',
-        //                 'height': height
-        //             });
-        return;
-    }
-
+    let login_result = Session::login(&client, &user_email, &user_password, None, None);
     let session = match login_result.unwrap() {
         SessionType::Authenticated(s) => s,
         SessionType::AwaitingTotp(mut t) => {
@@ -107,54 +66,4 @@ fn main() {
     println!("User ID is {}", user.id);
 
     session.logout(&client).unwrap();
-}
-
-fn run_captcha(html: String) {
-    std::fs::write("/tmp/captcha.html", html).unwrap();
-    use wry::{
-        application::{
-            event::{Event, StartCause, WindowEvent},
-            event_loop::{ControlFlow, EventLoop},
-            window::WindowBuilder,
-        },
-        webview::WebViewBuilder,
-    };
-
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_title("Proton API Captcha")
-        .build(&event_loop)
-        .unwrap();
-    let _webview = WebViewBuilder::new(window)
-        .unwrap()
-        .with_url("http://127.0.0.1:8000/captcha.html")
-        .unwrap()
-        .with_devtools(true)
-        .with_ipc_handler(|window, req| {
-            println!("Window IPC: {req}");
-        })
-        .build()
-        .unwrap();
-
-    _webview
-        .evaluate_script(
-            "postMessageToParent = function(message) { window.ipc.postMessage(JSON.stringify(message), '*')}",
-        )
-        .unwrap();
-
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Wait;
-
-        match event {
-            Event::NewEvents(StartCause::Init) => println!("Wry has started!"),
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => {
-                println!("Close requested");
-                *control_flow = ControlFlow::Exit
-            }
-            _ => (),
-        }
-    });
 }
