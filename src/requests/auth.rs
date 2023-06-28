@@ -104,6 +104,7 @@ pub enum TFAStatus {
     None = 0,
     Totp = 1,
     FIDO2 = 2,
+    TotpOrFIDO2 = 3,
 }
 
 #[doc(hidden)]

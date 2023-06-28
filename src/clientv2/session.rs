@@ -229,6 +229,7 @@ fn validate_server_proof(
         TFAStatus::None => Ok(SessionType::Authenticated(session)),
         TFAStatus::Totp => Ok(SessionType::AwaitingTotp(TotpSession(session))),
         TFAStatus::FIDO2 => Err(LoginError::Unsupported2FA(TwoFactorAuth::FIDO2)),
+        TFAStatus::TotpOrFIDO2 => Ok(SessionType::AwaitingTotp(TotpSession(session))),
     }
 }
 
