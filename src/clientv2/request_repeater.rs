@@ -168,6 +168,7 @@ mod test {
         let url = server.base_url();
 
         let client = crate::http::ClientBuilder::new()
+            .allow_http()
             .base_url(&url)
             .build::<crate::http::ureq_client::UReqClient>()
             .unwrap();

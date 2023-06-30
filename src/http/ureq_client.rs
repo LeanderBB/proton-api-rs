@@ -35,8 +35,7 @@ impl TryFrom<ClientBuilder> for UReqClient {
             builder = builder.proxy(proxy);
         }
 
-        #[cfg(not(test))]
-        {
+        if !value.allow_http {
             builder = builder.https_only(true)
         }
 
@@ -111,7 +110,7 @@ impl ResponseBodySync for UReqDebugResponse {
             .map_err(|e| Error::Request(anyhow::anyhow!("Failed to read response body {e}")))?;
 
         let body_str = String::from_utf8_lossy(&body);
-        debug!("Request Body:\n{body_str}");
+        debug!("Request Body: {}", body_str);
 
         Ok(body)
     }

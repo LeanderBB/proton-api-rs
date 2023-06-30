@@ -38,6 +38,12 @@ impl<T: Into<String>> From<T> for UserUid {
 #[derive(Debug, Deserialize, Eq, PartialEq, Hash, Clone)]
 pub struct UserId(pub(crate) String);
 
+impl AsRef<str> for UserId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 impl Display for UserId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
@@ -89,6 +95,7 @@ pub struct Key {
 #[derive(Deserialize_repr, Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(u8)]
 pub enum KeyState {
+    None = 0,
     Trusted = 1,
     Active = 2,
 }

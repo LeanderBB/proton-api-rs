@@ -156,6 +156,7 @@ pub struct ClientBuilder {
     user_agent: String,
     proxy_url: Option<Proxy>,
     debug: bool,
+    allow_http: bool,
 }
 
 impl Default for ClientBuilder {
@@ -174,6 +175,7 @@ impl ClientBuilder {
             connect_timeout: None,
             proxy_url: None,
             debug: false,
+            allow_http: false,
         }
     }
 
@@ -211,6 +213,12 @@ impl ClientBuilder {
     /// Specify proxy URL for the builder.
     pub fn with_proxy(mut self, proxy: Proxy) -> Self {
         self.proxy_url = Some(proxy);
+        self
+    }
+
+    /// Allow http request
+    pub fn allow_http(mut self) -> Self {
+        self.allow_http = true;
         self
     }
 

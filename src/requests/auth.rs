@@ -79,7 +79,7 @@ pub struct AuthResponse<'a> {
     pub user_id: Cow<'a, str>,
     #[serde(rename = "UID")]
     pub uid: Cow<'a, str>,
-    pub token_type: Cow<'a, str>,
+    pub token_type: Option<Cow<'a, str>>,
     pub access_token: Cow<'a, str>,
     pub refresh_token: Cow<'a, str>,
     pub server_proof: Cow<'a, str>,
@@ -131,7 +131,7 @@ pub struct FIDOKey<'a> {
 #[serde(rename_all = "PascalCase")]
 pub struct FIDO2Info<'a> {
     pub authentication_options: serde_json::Value,
-    pub registered_keys: Vec<FIDOKey<'a>>,
+    pub registered_keys: Option<Vec<FIDOKey<'a>>>,
 }
 
 #[doc(hidden)]
