@@ -27,6 +27,7 @@ fn target_path_for_go_lib() -> (PathBuf, PathBuf) {
 fn build_go_lib(lib_path: &Path) {
     let mut command = Command::new("go");
 
+    #[cfg(any(target_os= "linux",target_os = "android"))]
     command.env("CGO_LDFLAGS", "-Wl,--build-id=none");
     command.arg("build");
     command.arg("-ldflags=-buildid=");

@@ -36,7 +36,7 @@ impl std::fmt::Display for HumanVerificationType {
 }
 
 /// Human Verification data required for Login.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HumanVerificationLoginData {
     /// Type of human verification where the code originated from.
     pub hv_type: HumanVerificationType,

@@ -1,7 +1,10 @@
 //! UReq HTTP client implementation.
 
-use crate::http::{ClientBuilder, ClientSync, Error, FromResponse, Method, ResponseBodySync};
-use crate::http::{Request, RequestFactory, X_PM_APP_VERSION_HEADER};
+use crate::http::X_PM_APP_VERSION_HEADER;
+use crate::http::{
+    ClientBuilder, ClientRequest, ClientRequestBuilder, ClientSync, Error, FromResponse, Method,
+    RequestData, ResponseBodySync,
+};
 use crate::requests::APIError;
 use log::debug;
 use std::io;
@@ -116,13 +119,22 @@ impl ResponseBodySync for UReqDebugResponse {
     }
 }
 
-impl ClientSync for UReqClient {
-    fn execute<R: Request + ?Sized>(
-        &self,
-        r: &R,
-        factory: &dyn RequestFactory,
-    ) -> Result<R::Output, Error> {
-        let request = r.build_request(factory);
+pub struct UReqRequest {
+    request: ureq::Request,
+    body: Option<bytes::Bytes>,
+}
+
+impl ClientRequest for UReqRequest {
+    fn header(mut self, key: impl AsRef<str>, value: impl AsRef<str>) -> Self {
+        self.request = self.request.set(key.as_ref(), value.as_ref());
+        self
+    }
+}
+
+impl ClientRequestBuilder for UReqClient {
+    type Request = UReqRequest;
+
+    fn new_request(&self, request: &RequestData) -> Self::Request {
         let final_url = format!("{}/{}", self.base_url, request.url);
         let mut ureq_request = match request.method {
             Method::Delete => self.agent.delete(&final_url),
@@ -140,16 +152,25 @@ impl ClientSync for UReqClient {
             ureq_request = ureq_request.set(header, value);
         }
 
-        let ureq_response = if let Some(body) = &request.body {
-            ureq_request.send_bytes(body)?
+        Self::Request {
+            request: ureq_request,
+            body: request.body.clone(),
+        }
+    }
+}
+
+impl ClientSync for UReqClient {
+    fn execute<R: FromResponse>(&self, request: Self::Request) -> Result<R::Output, Error> {
+        let ureq_response = if let Some(body) = request.body {
+            request.request.send_bytes(body.as_ref())?
         } else {
-            ureq_request.call()?
+            request.request.call()?
         };
 
         if !self.debug {
-            R::Response::from_response_sync(UReqResponse(ureq_response))
+            R::from_response_sync(UReqResponse(ureq_response))
         } else {
-            R::Response::from_response_sync(UReqDebugResponse(ureq_response))
+            R::from_response_sync(UReqDebugResponse(ureq_response))
         }
     }
 }

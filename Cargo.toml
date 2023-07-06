@@ -1,7 +1,7 @@
 [package]
 name = "proton-api-rs"
 authors = ["Leander Beernaert <lbb-dev@pm.me>"]
-version = "0.10.2"
+version = "0.11.0"
 edition = "2021"
 license = "AGPL-3.0-only"
 description = "Unofficial implemention of proton REST API in rust"
@@ -30,6 +30,7 @@ ureq = {version="2.6", optional=true, features=["socks-proxy", "socks"]}
 default = []
 http-ureq = ["dep:ureq"]
 http-reqwest = ["dep:reqwest"]
+async-traits =[]
 
 [dependencies.reqwest]
 version = "0.11"
@@ -40,7 +41,6 @@ optional = true
 [dev-dependencies]
 env_logger = "0.10"
 tokio = {version ="1", features = ["full"]}
-httpmock = "0.6"
 go-gpa-server = {path= "go-gpa-server"}
 
 [[example]]
@@ -53,5 +53,5 @@ required-features = ["http-ureq"]
 
 [[test]]
 name = "session"
-required-features = ["http-ureq"]
+required-features = ["http-ureq", "http-reqwest"]
 

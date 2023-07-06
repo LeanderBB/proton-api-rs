@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "async-traits", allow(incomplete_features))]
+#![cfg_attr(feature = "async-traits", feature(async_fn_in_trait))]
 // Enable clippy if our Cargo.toml file asked us to do so.
 #![cfg_attr(feature = "clippy", feature(plugin))]
 #![cfg_attr(feature = "clippy", plugin(clippy))]
@@ -38,7 +40,8 @@
 //!
 //! Login into a new session async:
 //! ```
-//! use proton_api_rs::{http, Session, SessionType};
+//! use proton_api_rs::{http, Session, SessionType, http::Sequence};
+//! use proton_api_rs::domain::SecretString;
 //! async fn example<T:http::ClientAsync>() {
 //!     let client = http::ClientBuilder::new()
 //!         .user_agent("MyUserAgent/0.0.0")
@@ -46,25 +49,26 @@
 //!         .app_version("MyApp@0.1.1")
 //!         .build::<T>().unwrap();
 //!
-//!     let session = match Session::login_async(&client, "my_address@proton.me", "my_proton_password", None, None).await.unwrap(){
+//!     let session = match Session::login(&"my_address@proton.me", &SecretString::new("my_proton_password".into()), None).do_async(&client).await.unwrap(){
 //!         // Session is authenticated, no 2FA verifications necessary.
 //!         SessionType::Authenticated(c) => c,
 //!         // Session needs 2FA TOTP auth.
 //!         SessionType::AwaitingTotp(t) => {
-//!             t.submit_totp_async(&client, "000000").await.unwrap()
+//!             t.submit_totp("000000").do_async(&client).await.unwrap()
 //!         }
 //!     };
 //!
 //!     // session is now authenticated and can access the rest of the API.
 //!     // ...
 //!
-//!     session.logout_async(&client).await.unwrap();
+//!     session.logout().do_async(&client).await.unwrap();
 //! }
 //! ```
 //!
 //! Login into a new session sync:
 //! ```
-//! use proton_api_rs::{Session, http, SessionType};
+//! use proton_api_rs::{Session, http, SessionType, http::Sequence};
+//! use proton_api_rs::domain::SecretString;
 //! fn example<T:http::ClientSync>() {
 //!     let client = http::ClientBuilder::new()
 //!         .user_agent("MyUserAgent/0.0.0")
@@ -72,25 +76,25 @@
 //!         .app_version("MyApp@0.1.1")
 //!         .build::<T>().unwrap();
 //!
-//!     let session = match Session::login(&client, "my_address@proton.me", "my_proton_password", None, None).unwrap(){
+//!     let session = match Session::login("my_address@proton.me", &SecretString::new("my_proton_password".into()), None).do_sync(&client).unwrap(){
 //!         // Session is authenticated, no 2FA verifications necessary.
 //!         SessionType::Authenticated(c) => c,
 //!         // Session needs 2FA TOTP auth.
 //!         SessionType::AwaitingTotp(t) => {
-//!             t.submit_totp(&client, "000000").unwrap()
+//!             t.submit_totp("000000").do_sync(&client).unwrap()
 //!         }
 //!     };
 //!
 //!     // session is now authenticated and can access the rest of the API.
 //!     // ...
 //!
-//!     session.logout(&client).unwrap();
+//!     session.logout().do_sync(&client).unwrap();
 //! }
 //! ```
 //!
 //! Login using a previous sessions token.
 //! ```
-//! use proton_api_rs::{http, Session, SessionType};
+//! use proton_api_rs::{http, Session, SessionType, http::Sequence};
 //! use proton_api_rs::domain::UserUid;
 //!
 //! async fn example<T:http::ClientAsync>() {
@@ -102,12 +106,12 @@
 //!         .app_version("MyApp@0.1.1")
 //!         .build::<T>().unwrap();
 //!
-//!     let session = Session::refresh_async(&client, &user_uid, &user_refresh_token, None).await.unwrap();
+//!     let session = Session::refresh(&user_uid, &user_refresh_token).do_async(&client).await.unwrap();
 //!
 //!     // session is now authenticated and can access the rest of the API.
 //!     // ...
 //!
-//!     session.logout_async(&client).await.unwrap();
+//!     session.logout().do_async(&client).await.unwrap();
 //! }
 //! ```
 

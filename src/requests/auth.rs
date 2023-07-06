@@ -1,8 +1,6 @@
 use crate::domain::{HumanVerificationLoginData, SecretString, UserUid};
 use crate::http;
-use crate::http::{
-    RequestData, RequestFactory, X_PM_HUMAN_VERIFICATION_TOKEN, X_PM_HUMAN_VERIFICATION_TOKEN_TYPE,
-};
+use crate::http::{RequestData, X_PM_HUMAN_VERIFICATION_TOKEN, X_PM_HUMAN_VERIFICATION_TOKEN_TYPE};
 use secrecy::Secret;
 use serde::{Deserialize, Serialize};
 use serde_repr::Deserialize_repr;
@@ -15,27 +13,25 @@ pub struct AuthInfoRequest<'a> {
     pub username: &'a str,
 }
 
-impl<'a> http::Request for AuthInfoRequest<'a> {
-    type Output = AuthInfoResponse<'a>;
+impl<'a> http::RequestDesc for AuthInfoRequest<'a> {
+    type Output = AuthInfoResponse;
     type Response = http::JsonResponse<Self::Output>;
 
-    fn build_request(&self, factory: &dyn RequestFactory) -> RequestData {
-        factory
-            .new_request(http::Method::Post, "auth/v4/info")
-            .json(self)
+    fn build(&self) -> RequestData {
+        RequestData::new(http::Method::Post, "auth/v4/info").json(self)
     }
 }
 
 #[doc(hidden)]
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
-pub struct AuthInfoResponse<'a> {
+pub struct AuthInfoResponse {
     pub version: i64,
-    pub modulus: Cow<'a, str>,
-    pub server_ephemeral: Cow<'a, str>,
-    pub salt: Cow<'a, str>,
+    pub modulus: String,
+    pub server_ephemeral: String,
+    pub salt: String,
     #[serde(rename = "SRPSession")]
-    pub srp_session: Cow<'a, str>,
+    pub srp_session: String,
 }
 
 #[doc(hidden)]
@@ -48,17 +44,15 @@ pub struct AuthRequest<'a> {
     #[serde(rename = "SRPSession")]
     pub srp_session: &'a str,
     #[serde(skip)]
-    pub human_verification: Option<HumanVerificationLoginData>,
+    pub human_verification: &'a Option<HumanVerificationLoginData>,
 }
 
-impl<'a> http::Request for AuthRequest<'a> {
-    type Output = AuthResponse<'a>;
+impl<'a> http::RequestDesc for AuthRequest<'a> {
+    type Output = AuthResponse;
     type Response = http::JsonResponse<Self::Output>;
 
-    fn build_request(&self, factory: &dyn RequestFactory) -> RequestData {
-        let mut request = factory
-            .new_request(http::Method::Post, "auth/v4")
-            .json(self);
+    fn build(&self) -> RequestData {
+        let mut request = RequestData::new(http::Method::Post, "auth/v4").json(self);
 
         if let Some(hv) = &self.human_verification {
             // repeat submission with x-pm-human-verification-token and x-pm-human-verification-token-type
@@ -74,18 +68,18 @@ impl<'a> http::Request for AuthRequest<'a> {
 #[doc(hidden)]
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
-pub struct AuthResponse<'a> {
+pub struct AuthResponse {
     #[serde(rename = "UserID")]
-    pub user_id: Cow<'a, str>,
+    pub user_id: String,
     #[serde(rename = "UID")]
-    pub uid: Cow<'a, str>,
-    pub token_type: Option<Cow<'a, str>>,
-    pub access_token: Cow<'a, str>,
-    pub refresh_token: Cow<'a, str>,
-    pub server_proof: Cow<'a, str>,
-    pub scope: Cow<'a, str>,
+    pub uid: String,
+    pub token_type: Option<String>,
+    pub access_token: String,
+    pub refresh_token: String,
+    pub server_proof: String,
+    pub scope: String,
     #[serde(rename = "2FA")]
-    pub tfa: TFAInfo<'a>,
+    pub tfa: TFAInfo,
     pub password_mode: PasswordMode,
 }
 
@@ -110,10 +104,10 @@ pub enum TFAStatus {
 #[doc(hidden)]
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
-pub struct TFAInfo<'a> {
+pub struct TFAInfo {
     pub enabled: TFAStatus,
     #[serde(rename = "FIDO2")]
-    pub fido2_info: FIDO2Info<'a>,
+    pub fido2_info: FIDO2Info,
 }
 
 #[doc(hidden)]
@@ -129,9 +123,9 @@ pub struct FIDOKey<'a> {
 #[doc(hidden)]
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
-pub struct FIDO2Info<'a> {
+pub struct FIDO2Info {
     pub authentication_options: serde_json::Value,
-    pub registered_keys: Option<Vec<FIDOKey<'a>>>,
+    pub registered_keys: Option<serde_json::Value>,
 }
 
 #[doc(hidden)]
@@ -177,17 +171,15 @@ impl<'a> TOTPRequest<'a> {
     }
 }
 
-impl<'a> http::Request for TOTPRequest<'a> {
+impl<'a> http::RequestDesc for TOTPRequest<'a> {
     type Output = ();
     type Response = http::NoResponse;
 
-    fn build_request(&self, factory: &dyn RequestFactory) -> RequestData {
-        factory
-            .new_request(http::Method::Post, "auth/v4/2fa")
-            .json(TFAAuth {
-                two_factor_code: self.code,
-                fido2: FIDO2Auth::empty(),
-            })
+    fn build(&self) -> RequestData {
+        RequestData::new(http::Method::Post, "auth/v4/2fa").json(TFAAuth {
+            two_factor_code: self.code,
+            fido2: FIDO2Auth::empty(),
+        })
     }
 }
 
@@ -200,19 +192,19 @@ pub struct UserAuth {
 }
 
 impl UserAuth {
-    pub fn from_auth_response(auth: &AuthResponse) -> Self {
+    pub fn from_auth_response(auth: AuthResponse) -> Self {
         Self {
-            uid: Secret::new(UserUid(auth.uid.to_string())),
-            access_token: SecretString::new(auth.access_token.to_string()),
-            refresh_token: SecretString::new(auth.refresh_token.to_string()),
+            uid: Secret::new(UserUid(auth.uid)),
+            access_token: SecretString::new(auth.access_token),
+            refresh_token: SecretString::new(auth.refresh_token),
         }
     }
 
-    pub fn from_auth_refresh_response(auth: &AuthRefreshResponse) -> Self {
+    pub fn from_auth_refresh_response(auth: AuthRefreshResponse) -> Self {
         Self {
-            uid: Secret::new(UserUid(auth.uid.to_string())),
-            access_token: SecretString::new(auth.access_token.to_string()),
-            refresh_token: SecretString::new(auth.refresh_token.to_string()),
+            uid: Secret::new(UserUid(auth.uid)),
+            access_token: SecretString::new(auth.access_token),
+            refresh_token: SecretString::new(auth.refresh_token),
         }
     }
 }
@@ -233,13 +225,13 @@ pub struct AuthRefresh<'a> {
 #[doc(hidden)]
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
-pub struct AuthRefreshResponse<'a> {
+pub struct AuthRefreshResponse {
     #[serde(rename = "UID")]
-    pub uid: Cow<'a, str>,
-    pub token_type: Cow<'a, str>,
-    pub access_token: Cow<'a, str>,
-    pub refresh_token: Cow<'a, str>,
-    pub scope: Cow<'a, str>,
+    pub uid: String,
+    pub token_type: Option<String>,
+    pub access_token: String,
+    pub refresh_token: String,
+    pub scope: String,
 }
 
 pub struct AuthRefreshRequest<'a> {
@@ -253,31 +245,29 @@ impl<'a> AuthRefreshRequest<'a> {
     }
 }
 
-impl<'a> http::Request for AuthRefreshRequest<'a> {
-    type Output = AuthRefreshResponse<'a>;
+impl<'a> http::RequestDesc for AuthRefreshRequest<'a> {
+    type Output = AuthRefreshResponse;
     type Response = http::JsonResponse<Self::Output>;
 
-    fn build_request(&self, factory: &dyn RequestFactory) -> RequestData {
-        factory
-            .new_request(http::Method::Post, "auth/v4/refresh")
-            .json(AuthRefresh {
-                uid: &self.uid.0,
-                refresh_token: self.token,
-                grant_type: "refresh_token",
-                response_type: "token",
-                redirect_uri: "https://protonmail.ch/",
-            })
+    fn build(&self) -> RequestData {
+        RequestData::new(http::Method::Post, "auth/v4/refresh").json(AuthRefresh {
+            uid: &self.uid.0,
+            refresh_token: self.token,
+            grant_type: "refresh_token",
+            response_type: "token",
+            redirect_uri: "https://protonmail.ch/",
+        })
     }
 }
 
 pub struct LogoutRequest {}
 
-impl http::Request for LogoutRequest {
+impl http::RequestDesc for LogoutRequest {
     type Output = ();
     type Response = http::NoResponse;
 
-    fn build_request(&self, factory: &dyn RequestFactory) -> RequestData {
-        factory.new_request(http::Method::Delete, "auth/v4")
+    fn build(&self) -> RequestData {
+        RequestData::new(http::Method::Delete, "auth/v4")
     }
 }
 
@@ -292,16 +282,17 @@ impl<'a> CaptchaRequest<'a> {
     }
 }
 
-impl<'a> http::Request for CaptchaRequest<'a> {
+impl<'a> http::RequestDesc for CaptchaRequest<'a> {
     type Output = String;
     type Response = http::StringResponse;
 
-    fn build_request(&self, factory: &dyn RequestFactory) -> RequestData {
+    fn build(&self) -> RequestData {
         let url = if self.force_web {
             format!("core/v4/captcha?ForceWebMessaging=1&Token={}", self.token)
         } else {
             format!("core/v4/captcha?Token={}", self.token)
         };
-        factory.new_request(http::Method::Get, &url)
+
+        RequestData::new(http::Method::Get, url)
     }
 }

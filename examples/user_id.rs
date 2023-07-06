@@ -1,4 +1,6 @@
-use proton_api_rs::{http, ping_async};
+use proton_api_rs::domain::SecretString;
+use proton_api_rs::http::Sequence;
+use proton_api_rs::{http, ping};
 use proton_api_rs::{Session, SessionType};
 pub use tokio;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
@@ -6,7 +8,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 #[tokio::main(worker_threads = 1)]
 async fn main() {
     let user_email = std::env::var("PAPI_USER_EMAIL").unwrap();
-    let user_password = std::env::var("PAPI_USER_PASSWORD").unwrap();
+    let user_password = SecretString::new(std::env::var("PAPI_USER_PASSWORD").unwrap());
     let app_version = std::env::var("PAPI_APP_VERSION").unwrap();
 
     let client = http::ClientBuilder::new()
@@ -14,15 +16,16 @@ async fn main() {
         .build::<http::reqwest_client::ReqwestClient>()
         .unwrap();
 
-    ping_async(&client).await.unwrap();
+    ping().do_async(&client).await.unwrap();
 
-    let session = match Session::login_async(&client, &user_email, &user_password, None, None)
+    let session = match Session::login(&user_email, &user_password, None)
+        .do_async(&client)
         .await
         .unwrap()
     {
         SessionType::Authenticated(c) => c,
 
-        SessionType::AwaitingTotp(mut t) => {
+        SessionType::AwaitingTotp(t) => {
             let mut stdout = tokio::io::stdout();
             let mut line_reader = tokio::io::BufReader::new(tokio::io::stdin()).lines();
             let session = {
@@ -41,13 +44,12 @@ async fn main() {
 
                     let totp = line.trim_end_matches('\n');
 
-                    match t.submit_totp_async(&client, totp).await {
+                    match t.submit_totp(totp).do_async(&client).await {
                         Ok(ac) => {
                             session = Some(ac);
                             break;
                         }
-                        Err((et, e)) => {
-                            t = et;
+                        Err(e) => {
                             eprintln!("Failed to submit totp: {e}");
                             continue;
                         }
@@ -65,8 +67,8 @@ async fn main() {
         }
     };
 
-    let user = session.get_user_async(&client).await.unwrap();
+    let user = session.get_user().do_async(&client).await.unwrap();
     println!("User ID is {}", user.id);
 
-    session.logout_async(&client).await.unwrap();
+    session.logout().do_async(&client).await.unwrap();
 }
