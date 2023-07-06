@@ -4,11 +4,13 @@ use proton_api_rs::http;
 use proton_api_rs::http::ClientBuilder;
 use std::sync::OnceLock;
 
-type Client = http::ureq_client::UReqClient;
+pub type ClientSync = http::ureq_client::UReqClient;
+pub type ClientASync = http::reqwest_client::ReqwestClient;
 
 static LOG_CELL: OnceLock<()> = OnceLock::new();
 
-pub fn create_session_and_server() -> (Client, Server) {
+pub fn create_session_and_server<Client: TryFrom<ClientBuilder, Error = anyhow::Error>>(
+) -> (Client, Server) {
     let debug = if let Ok(v) = std::env::var("RUST_LOG") {
         if v.eq_ignore_ascii_case("debug") {
             true

@@ -1,12 +1,13 @@
 use crate::http;
+use crate::http::RequestData;
 
 pub struct Ping;
 
-impl http::Request for Ping {
+impl http::RequestDesc for Ping {
     type Output = ();
     type Response = http::NoResponse;
 
-    fn build_request(&self, factory: &dyn http::RequestFactory) -> http::RequestData {
-        factory.new_request(http::Method::Get, "tests/ping")
+    fn build(&self) -> RequestData {
+        RequestData::new(http::Method::Get, "tests/ping")
     }
 }

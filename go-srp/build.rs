@@ -74,6 +74,7 @@ fn target_path_for_go_lib(platform: Platform) -> (PathBuf, PathBuf) {
 fn build_go_lib(lib_path: &Path, platform: Platform) {
     let mut command = Command::new("go");
 
+    #[cfg(any(target_os= "linux",target_os = "android"))]
     command.env("CGO_LDFLAGS", "-Wl,--build-id=none");
     match platform {
         Platform::Desktop => {}

@@ -1,5 +1,5 @@
 use crate::http;
-use crate::http::{RequestData, RequestFactory};
+use crate::http::RequestData;
 use serde::Deserialize;
 
 #[doc(hidden)]
@@ -11,12 +11,12 @@ pub struct LatestEventResponse {
 
 pub struct GetLatestEventRequest;
 
-impl http::Request for GetLatestEventRequest {
+impl http::RequestDesc for GetLatestEventRequest {
     type Output = LatestEventResponse;
     type Response = http::JsonResponse<Self::Output>;
 
-    fn build_request(&self, factory: &dyn RequestFactory) -> RequestData {
-        factory.new_request(http::Method::Get, "core/v4/events/latest")
+    fn build(&self) -> RequestData {
+        RequestData::new(http::Method::Get, "core/v4/events/latest")
     }
 }
 
@@ -30,14 +30,14 @@ impl<'a> GetEventRequest<'a> {
     }
 }
 
-impl<'a> http::Request for GetEventRequest<'a> {
+impl<'a> http::RequestDesc for GetEventRequest<'a> {
     type Output = crate::domain::Event;
     type Response = http::JsonResponse<Self::Output>;
 
-    fn build_request(&self, factory: &dyn RequestFactory) -> RequestData {
-        factory.new_request(
+    fn build(&self) -> RequestData {
+        RequestData::new(
             http::Method::Get,
-            &format!("core/v4/events/{}", self.event_id),
+            format!("core/v4/events/{}", self.event_id),
         )
     }
 }

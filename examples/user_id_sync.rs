@@ -1,4 +1,6 @@
 use proton_api_rs::clientv2::{ping, SessionType};
+use proton_api_rs::domain::SecretString;
+use proton_api_rs::http::Sequence;
 use proton_api_rs::{http, Session};
 use std::io::{BufRead, Write};
 
@@ -6,7 +8,7 @@ fn main() {
     env_logger::init();
 
     let user_email = std::env::var("PAPI_USER_EMAIL").unwrap();
-    let user_password = std::env::var("PAPI_USER_PASSWORD").unwrap();
+    let user_password = SecretString::new(std::env::var("PAPI_USER_PASSWORD").unwrap());
     let app_version = std::env::var("PAPI_APP_VERSION").unwrap();
 
     let client = http::ClientBuilder::new()
@@ -15,12 +17,12 @@ fn main() {
         .build::<http::ureq_client::UReqClient>()
         .unwrap();
 
-    ping(&client).unwrap();
+    ping().do_sync(&client).unwrap();
 
-    let login_result = Session::login(&client, &user_email, &user_password, None, None);
+    let login_result = Session::login(&user_email, &user_password, None).do_sync(&client);
     let session = match login_result.unwrap() {
         SessionType::Authenticated(s) => s,
-        SessionType::AwaitingTotp(mut t) => {
+        SessionType::AwaitingTotp(t) => {
             let mut line_reader = std::io::BufReader::new(std::io::stdin());
             let session = {
                 let mut session = None;
@@ -38,13 +40,12 @@ fn main() {
 
                     let totp = line.trim_end_matches('\n');
 
-                    match t.submit_totp(&client, totp) {
+                    match t.submit_totp(totp).do_sync(&client) {
                         Ok(ac) => {
                             session = Some(ac);
                             break;
                         }
-                        Err((et, e)) => {
-                            t = et;
+                        Err(e) => {
                             eprintln!("Failed to submit totp: {e}");
                             continue;
                         }
@@ -62,8 +63,8 @@ fn main() {
         }
     };
 
-    let user = session.get_user(&client).unwrap();
+    let user = session.get_user().do_sync(&client).unwrap();
     println!("User ID is {}", user.id);
 
-    session.logout(&client).unwrap();
+    session.logout().do_sync(&client).unwrap();
 }

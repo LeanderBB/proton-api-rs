@@ -68,6 +68,16 @@ impl Server {
             ))
         }
     }
+
+    pub fn set_auth_timeout(&self, duration: std::time::Duration) -> Result<()> {
+        unsafe {
+            if go::gpaSetAuthLife(self.0, duration.as_secs() as i64) < 0 {
+                return Err("Failed to set auth timeout".to_string());
+            }
+
+            Ok(())
+        }
+    }
 }
 
 impl Drop for Server {

@@ -9,6 +9,7 @@ typedef const char cchar_t;
 import "C"
 import (
 	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/ProtonMail/go-proton-api/server"
@@ -102,6 +103,18 @@ func gpaCreateUser(h int, cuser *C.cchar_t, cpassword *C.cchar_t, outUserID **C.
 	*outAddrID = C.CString(addrID)
 
 	return 0
+}
+
+//export gpaSetAuthLife
+func gpaSetAuthLife(h int, seconds int) int {
+	srv := alloc.resolve(h)
+	if srv == nil {
+		return -1
+	}
+
+	srv.SetAuthLife(time.Duration(seconds) * time.Second)
+
+    return 0
 }
 
 //export CStrFree

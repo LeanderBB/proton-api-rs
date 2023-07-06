@@ -1,11 +1,14 @@
 use crate::http::{
-    ClientAsync, ClientBuilder, Error, FromResponse, Method, Request, RequestFactory,
-    ResponseBodyAsync, X_PM_APP_VERSION_HEADER,
+    ClientAsync, ClientBuilder, ClientRequest, ClientRequestBuilder, Error, FromResponse, Method,
+    RequestData, ResponseBodyAsync, X_PM_APP_VERSION_HEADER,
 };
 use crate::requests::APIError;
 use bytes::Bytes;
 use reqwest;
+
+#[cfg(not(feature = "async-traits"))]
 use std::future::Future;
+#[cfg(not(feature = "async-traits"))]
 use std::pin::Pin;
 
 #[derive(Debug)]
@@ -43,7 +46,7 @@ impl TryFrom<ClientBuilder> for ReqwestClient {
 
         builder = builder
             .min_tls_version(Version::TLS_1_2)
-            .https_only(true)
+            .https_only(!value.allow_http)
             .cookie_store(true)
             .user_agent(value.user_agent)
             .default_headers(header_map);
@@ -87,28 +90,39 @@ impl From<reqwest::Error> for Error {
 
 struct ReqwestResponse(reqwest::Response);
 
+pub struct ReqwestRequest(reqwest::RequestBuilder);
+
+impl ClientRequest for ReqwestRequest {
+    fn header(self, key: impl AsRef<str>, value: impl AsRef<str>) -> Self {
+        Self(self.0.header(key.as_ref(), value.as_ref()))
+    }
+}
+
 impl ResponseBodyAsync for ReqwestResponse {
     type Body = Bytes;
 
+    #[cfg(not(feature = "async-traits"))]
     fn get_body_async(self) -> Pin<Box<dyn Future<Output = crate::http::Result<Self::Body>>>> {
         Box::pin(async {
             let bytes = self.0.bytes().await?;
             Ok(bytes)
         })
     }
+
+    #[cfg(feature = "async-traits")]
+    async fn get_body_async(self) -> crate::http::Result<Self::Body> {
+        let bytes = self.0.bytes().await?;
+        Ok(bytes)
+    }
 }
 
-impl ClientAsync for ReqwestClient {
-    fn execute_async<R: Request + ?Sized>(
-        &self,
-        r: &R,
-        factory: &dyn RequestFactory,
-    ) -> Pin<Box<dyn Future<Output = crate::http::Result<R::Output>>>> {
-        let request = r.build_request(factory);
+impl ClientRequestBuilder for ReqwestClient {
+    type Request = ReqwestRequest;
 
-        let final_url = format!("{}/{}", self.base_url, request.url);
+    fn new_request(&self, data: &RequestData) -> Self::Request {
+        let final_url = format!("{}/{}", self.base_url, data.url);
 
-        let mut rrequest = match request.method {
+        let mut request = match data.method {
             Method::Delete => self.client.delete(&final_url),
             Method::Get => self.client.get(&final_url),
             Method::Put => self.client.put(&final_url),
@@ -117,32 +131,57 @@ impl ClientAsync for ReqwestClient {
         };
 
         // Set headers.
-        for (header, value) in &request.headers {
-            rrequest = rrequest.header(header, value);
+        for (header, value) in &data.headers {
+            request = request.header(header, value);
         }
 
-        if let Some(body) = &request.body {
-            rrequest = rrequest.body(body.to_vec())
+        if let Some(body) = &data.body {
+            request = request.body(body.clone())
         }
 
-        Box::pin(async move {
-            let response = rrequest.send().await?;
+        ReqwestRequest(request)
+    }
+}
 
-            let status = response.status().as_u16();
+impl ReqwestClient {
+    pub async fn direct_exec<R: FromResponse>(
+        &self,
+        r: ReqwestRequest,
+    ) -> crate::http::Result<R::Output> {
+        let response = r.0.send().await?;
 
-            if status >= 400 {
-                let body = response
-                    .bytes()
-                    .await
-                    .map_err(|_| Error::API(APIError::new(status)))?;
+        let status = response.status().as_u16();
 
-                return Err(Error::API(APIError::with_status_and_body(
-                    status,
-                    body.as_ref(),
-                )));
-            }
+        if status >= 400 {
+            let body = response
+                .bytes()
+                .await
+                .map_err(|_| Error::API(APIError::new(status)))?;
 
-            R::Response::from_response_async(ReqwestResponse(response)).await
-        })
+            return Err(Error::API(APIError::with_status_and_body(
+                status,
+                body.as_ref(),
+            )));
+        }
+
+        R::from_response_async(ReqwestResponse(response)).await
+    }
+}
+
+impl ClientAsync for ReqwestClient {
+    #[cfg(not(feature = "async-traits"))]
+    fn execute_async<R: FromResponse>(
+        &self,
+        r: Self::Request,
+    ) -> Pin<Box<dyn Future<Output = crate::http::Result<R::Output>> + '_>> {
+        Box::pin(async move { self.direct_exec::<R>(r).await })
+    }
+
+    #[cfg(feature = "async-traits")]
+    async fn execute_async<R: FromResponse>(
+        &self,
+        request: Self::Request,
+    ) -> crate::http::Result<R::Output> {
+        self.direct_exec::<R>(request).await
     }
 }
