@@ -11,7 +11,7 @@ use std::io;
 use std::io::Read;
 use ureq;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UReqClient {
     agent: ureq::Agent,
     app_version: String,

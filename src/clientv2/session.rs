@@ -1,7 +1,7 @@
 use crate::clientv2::TotpSession;
 use crate::domain::{
-    EventId, HumanVerification, HumanVerificationLoginData, SecretString, TwoFactorAuth, User,
-    UserUid,
+    Event, EventId, HumanVerification, HumanVerificationLoginData, SecretString, TwoFactorAuth,
+    User, UserUid,
 };
 use crate::http;
 use crate::http::{
@@ -45,6 +45,15 @@ pub struct SessionRefreshData {
     pub token: Secret<String>,
 }
 
+impl PartialEq for SessionRefreshData {
+    fn eq(&self, other: &Self) -> bool {
+        self.user_uid.expose_secret() == other.user_uid.expose_secret()
+            && self.token.expose_secret() == other.token.expose_secret()
+    }
+}
+
+impl Eq for SessionRefreshData {}
+
 #[derive(Debug)]
 pub enum SessionType {
     Authenticated(Session),
@@ -53,7 +62,7 @@ pub enum SessionType {
 
 /// Authenticated Session from which one can access data/functionality restricted to authenticated
 /// users.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Session {
     pub(super) user_auth: Arc<parking_lot::RwLock<UserAuth>>,
 }
@@ -100,15 +109,18 @@ impl Session {
             .map(|r| -> Result<User, http::Error> { Ok(r.user) })
     }
 
-    pub fn logout(&self) -> impl Sequence<Output = ()> {
+    pub fn logout(&self) -> impl Sequence<Output = (), Error = http::Error> {
         self.wrap_request(LogoutRequest {}.to_request())
     }
 
-    pub fn get_latest_event(&self) -> impl Request {
+    pub fn get_latest_event(
+        &self,
+    ) -> impl Sequence<'static, Output = EventId, Error = http::Error> {
         self.wrap_request(GetLatestEventRequest {}.to_request())
+            .map(|r| Ok(r.event_id))
     }
 
-    pub fn get_event(&self, id: &EventId) -> impl Request {
+    pub fn get_event(&self, id: &EventId) -> impl Sequence<Output = Event, Error = http::Error> {
         self.wrap_request(GetEventRequest::new(id).to_request())
     }
 

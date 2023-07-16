@@ -87,7 +87,7 @@ impl ClientBuilder {
         self
     }
 
-    pub fn build<T: TryFrom<ClientBuilder, Error = anyhow::Error>>(
+    pub fn build<T: TryFrom<ClientBuilder, Error = anyhow::Error> + Clone>(
         self,
     ) -> std::result::Result<T, anyhow::Error> {
         T::try_from(self)
@@ -102,7 +102,7 @@ pub trait ClientRequest: Sized {
     }
 }
 
-pub trait ClientRequestBuilder {
+pub trait ClientRequestBuilder: Clone {
     type Request: ClientRequest;
     fn new_request(&self, data: &RequestData) -> Self::Request;
 }

@@ -11,7 +11,7 @@ use std::future::Future;
 #[cfg(not(feature = "async-traits"))]
 use std::pin::Pin;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ReqwestClient {
     client: reqwest::Client,
     base_url: String,
