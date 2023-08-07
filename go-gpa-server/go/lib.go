@@ -12,6 +12,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/ProtonMail/go-proton-api"
 	"github.com/ProtonMail/go-proton-api/server"
 )
 
@@ -113,6 +114,33 @@ func gpaSetAuthLife(h int, seconds int) int {
 	}
 
 	srv.SetAuthLife(time.Duration(seconds) * time.Second)
+
+    return 0
+}
+
+//export gpaCreateLabel
+func gpaCreateLabel(h int,
+    cuserID *C.cchar_t,
+    cname *C.cchar_t,
+    cparentID *C.cchar_t,
+    labelType int,
+    outLabelID **C.char,
+    ) int {
+	srv := alloc.resolve(h)
+	if srv == nil {
+		return -1
+	}
+
+	userID := C.GoString(cuserID)
+	name := C.GoString(cname)
+	parentID :=C.GoString(cparentID)
+
+    labelID, err := srv.CreateLabel(userID, name, parentID, proton.LabelType(labelType))
+    if err != nil {
+        return -1
+    }
+
+	*outLabelID = C.CString(labelID)
 
     return 0
 }

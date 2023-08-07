@@ -2,10 +2,12 @@
 
 mod event;
 mod human_verification;
+mod labels;
 mod user;
 
 pub use event::*;
 pub use human_verification::*;
+pub use labels::*;
 pub use user::*;
 
 use serde_repr::Deserialize_repr;
@@ -37,4 +39,10 @@ impl Display for TwoFactorAuth {
 pub enum Boolean {
     False = 0,
     True = 1,
+}
+
+impl Default for Boolean {
+    fn default() -> Self {
+        Self::False
+    }
 }

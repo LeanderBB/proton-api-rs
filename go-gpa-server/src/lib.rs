@@ -6,17 +6,25 @@ pub struct Server(go::GoInt);
 
 pub type Result<T> = std::result::Result<T, String>;
 
-pub struct UserID(String);
+pub struct UserId(String);
 
-impl AsRef<str> for UserID {
+impl AsRef<str> for UserId {
     fn as_ref(&self) -> &str {
         &self.0
     }
 }
 
-pub struct AddressID(String);
+pub struct AddressId(String);
 
-impl AsRef<str> for AddressID {
+impl AsRef<str> for AddressId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+pub struct LabelId(String);
+
+impl AsRef<str> for LabelId {
     fn as_ref(&self) -> &str {
         &self.0
     }
@@ -45,7 +53,7 @@ impl Server {
         &self,
         name: impl AsRef<str>,
         password: impl AsRef<str>,
-    ) -> Result<(UserID, AddressID)> {
+    ) -> Result<(UserId, AddressId)> {
         unsafe {
             let cname = CString::new(name.as_ref()).expect("Failed to convert to CString");
             let cpwd = CString::new(password.as_ref()).expect("Failed to convert to CString");
@@ -63,8 +71,8 @@ impl Server {
             }
 
             Ok((
-                UserID(go_char_ptr_to_str(out_user_id)),
-                AddressID(go_char_ptr_to_str(out_addr_id)),
+                UserId(go_char_ptr_to_str(out_user_id)),
+                AddressId(go_char_ptr_to_str(out_addr_id)),
             ))
         }
     }
@@ -76,6 +84,43 @@ impl Server {
             }
 
             Ok(())
+        }
+    }
+
+    pub fn create_label(
+        &self,
+        user_id: &UserId,
+        name: impl AsRef<str>,
+        parent_id: Option<&LabelId>,
+        label_type: i32,
+    ) -> Result<LabelId> {
+        unsafe {
+            let cuser_id = CString::new(user_id.as_ref()).expect("Failed to convert to CString");
+            let cname = CString::new(name.as_ref()).expect("Failed to convert to CString");
+            let cparent_id =
+                parent_id.map(|c| CString::new(c.as_ref()).expect("Failed to convert to CString"));
+
+            let cparent_id_ptr = if let Some(parent_id) = cparent_id {
+                parent_id.as_ptr()
+            } else {
+                std::ptr::null()
+            };
+
+            let mut out_label_id = std::ptr::null_mut();
+
+            if go::gpaCreateLabel(
+                self.0,
+                cuser_id.as_ptr(),
+                cname.as_ptr(),
+                cparent_id_ptr,
+                label_type as i64,
+                &mut out_label_id,
+            ) != 0
+            {
+                return Err("Failed to create label".to_string());
+            }
+
+            Ok(LabelId(go_char_ptr_to_str(out_label_id)))
         }
     }
 }

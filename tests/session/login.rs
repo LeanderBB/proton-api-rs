@@ -1,12 +1,11 @@
-use crate::utils::{create_session_and_server, ClientASync, ClientSync};
+use crate::utils::{
+    create_session_and_server, ClientASync, ClientSync, DEFAULT_USER_EMAIL, DEFAULT_USER_PASSWORD,
+};
 use proton_api_rs::domain::SecretString;
 use proton_api_rs::http::Sequence;
 use proton_api_rs::{http, LoginError, Session, SessionType};
 use secrecy::{ExposeSecret, Secret};
 use tokio;
-
-const DEFAULT_USER_EMAIL: &str = "foo@bar.com";
-const DEFAULT_USER_PASSWORD: &str = "12345";
 
 #[test]
 fn session_login() {

@@ -1,7 +1,7 @@
 use crate::clientv2::TotpSession;
 use crate::domain::{
-    Event, EventId, HumanVerification, HumanVerificationLoginData, SecretString, TwoFactorAuth,
-    User, UserUid,
+    Event, EventId, HumanVerification, HumanVerificationLoginData, Label, LabelType, SecretString,
+    TwoFactorAuth, User, UserUid,
 };
 use crate::http;
 use crate::http::{
@@ -10,8 +10,8 @@ use crate::http::{
 };
 use crate::requests::{
     AuthInfoRequest, AuthInfoResponse, AuthRefreshRequest, AuthRequest, AuthResponse,
-    GetEventRequest, GetLatestEventRequest, LogoutRequest, TFAStatus, TOTPRequest, UserAuth,
-    UserInfoRequest,
+    GetEventRequest, GetLabelsRequest, GetLatestEventRequest, LogoutRequest, TFAStatus,
+    TOTPRequest, UserAuth, UserInfoRequest,
 };
 use go_srp::SRPAuth;
 use secrecy::{ExposeSecret, Secret};
@@ -130,6 +130,14 @@ impl Session {
             user_uid: reader.uid.clone(),
             token: reader.refresh_token.clone(),
         }
+    }
+
+    pub fn get_labels(
+        &self,
+        label_type: LabelType,
+    ) -> impl Sequence<'static, Output = Vec<Label>, Error = http::Error> {
+        self.wrap_request(GetLabelsRequest::new(label_type).to_request())
+            .map(|r| Ok(r.labels))
     }
 
     #[inline(always)]
