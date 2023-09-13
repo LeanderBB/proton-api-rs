@@ -21,6 +21,7 @@ fn main() {
 enum CPUArch {
     X86_64,
     Aarch64,
+    Arm,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -39,8 +40,10 @@ impl Platform {
                 return Platform::Android(CPUArch::X86_64);
             } else if target_arch == "aarch64" {
                 return Platform::Android(CPUArch::Aarch64);
+            } else if target_arch == "arm" {
+                return Platform::Android(CPUArch::Arm);
             } else {
-                panic!("unsupported android architecture")
+                panic!("unsupported android architecture: {target_arch}")
             }
         }
 
@@ -74,7 +77,7 @@ fn target_path_for_go_lib(platform: Platform) -> (PathBuf, PathBuf) {
 fn build_go_lib(lib_path: &Path, platform: Platform) {
     let mut command = Command::new("go");
 
-    #[cfg(any(target_os= "linux",target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     command.env("CGO_LDFLAGS", "-Wl,--build-id=none");
     match platform {
         Platform::Desktop => {}
@@ -89,6 +92,10 @@ fn build_go_lib(lib_path: &Path, platform: Platform) {
                 CPUArch::Aarch64 => {
                     command.env("GOARCH", "arm64");
                     command.env("CC", env::var("CC_aarch64-linux-android").unwrap());
+                }
+                CPUArch::Arm => {
+                    command.env("GOARCH", "arm");
+                    command.env("CC", env::var("CC_armv7-linux-androideabi").unwrap());
                 }
             };
         }
