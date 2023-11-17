@@ -264,21 +264,20 @@ fn wrap_session_request<'a, R: RequestDesc + 'a>(
         if let http::Error::API(api_err) = &e {
             if api_err.http_code == 401 {
                 log::debug!("Account session expired, attempting refresh");
-                let borrow = session.user_auth.read();
-                return Ok(AuthRefreshRequest::new(
-                    borrow.uid.expose_secret(),
-                    borrow.refresh_token.expose_secret(),
-                )
-                .to_request()
+                return Ok({
+                    let borrow = session.user_auth.read();
+                    AuthRefreshRequest::new(
+                        borrow.uid.expose_secret(),
+                        borrow.refresh_token.expose_secret(),
+                    )
+                    .to_request()
+                }
                 .chain(move |resp| {
-                    {
+                    let data = {
                         let mut writer = session.user_auth.write();
                         *writer = UserAuth::from_auth_refresh_response(resp);
-                    }
-                    let data = {
-                        let borrow = session.user_auth.read();
-                        data.header(X_PM_UID_HEADER, borrow.uid.expose_secret().as_str())
-                            .bearer_token(borrow.access_token.expose_secret())
+                        data.header(X_PM_UID_HEADER, writer.uid.expose_secret().as_str())
+                            .bearer_token(writer.access_token.expose_secret())
                     };
                     Ok(OwnedRequest::<R::Response>::new(data))
                 }));
