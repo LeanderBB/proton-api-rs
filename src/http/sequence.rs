@@ -38,6 +38,17 @@ pub trait Sequence {
         MapSequence { c: self, f }
     }
 
+    fn map_err<E, F: FnOnce(Self::Error) -> Result<Self::Output, E>>(
+        self,
+        f: F,
+    ) -> MapErrSequence<Self, F>
+    where
+        Self: Sized,
+        E: From<Self::Error> + From<Error> + Debug,
+    {
+        MapErrSequence { c: self, f }
+    }
+
     fn state<SS, F>(self, f: F) -> SequenceWithState<Self, F>
     where
         Self: Sized,
@@ -48,15 +59,23 @@ pub trait Sequence {
         SequenceWithState { seq: self, f }
     }
 
-    fn chain<SS, E, F>(self, f: F) -> SequenceChain<Self, F>
+    fn chain<SS, F>(self, f: F) -> SequenceChain<Self, F>
     where
-        SS: Sequence,
-        F: FnOnce(Self::Output) -> Result<SS, E>,
-        E: From<Self::Error> + Debug,
-        <SS as Sequence>::Error: From<Self::Error> + From<E> + Debug,
+        SS: Sequence<Error = Self::Error>,
+        F: FnOnce(Self::Output) -> Result<SS, Self::Error>,
         Self: Sized,
     {
         SequenceChain { s: self, f }
+    }
+
+    fn chain_err<SS, F>(self, f: F) -> SequenceErrChain<Self, F>
+    where
+        SS: Sequence<Output = Self::Output, Error = Self::Error>,
+        F: FnOnce(Self::Error) -> Result<SS, Self::Error>,
+        <SS as Sequence>::Error: From<Self::Error> + Debug,
+        Self: Sized,
+    {
+        SequenceErrChain { s: self, f }
     }
 }
 
@@ -135,6 +154,66 @@ where
         Output = Result<
             <MapSequence<C, F> as Sequence>::Output,
             <MapSequence<C, F> as Sequence>::Error,
+        >,
+    > + 'a
+    where
+        F: 'a,
+        C: 'a,
+    {
+        async move {
+            let v = self.c.do_async(client).await?;
+            let r = (self.f)(v)?;
+            Ok(r)
+        }
+    }
+}
+
+#[doc(hidden)]
+pub struct MapErrSequence<C, F> {
+    c: C,
+    f: F,
+}
+
+impl<C, E, F> Sequence for MapErrSequence<C, F>
+where
+    C: Sequence,
+    F: FnOnce(C::Error) -> Result<C::Output, E>,
+    E: From<Error> + Debug + From<C::Error>,
+{
+    type Output = C::Output;
+    type Error = E;
+
+    fn do_sync<T: ClientSync>(self, client: &T) -> Result<Self::Output, Self::Error> {
+        match self.c.do_sync(client) {
+            Ok(o) => Ok(o),
+            Err(e) => (self.f)(e),
+        }
+    }
+
+    #[cfg(not(feature = "async-traits"))]
+    fn do_async<'a, T: ClientAsync>(
+        self,
+        client: &'a T,
+    ) -> Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + 'a>>
+    where
+        Self: 'a,
+    {
+        Box::pin(async move {
+            match self.c.do_async(client).await {
+                Ok(o) => Ok(o),
+                Err(e) => (self.f)(e),
+            }
+        })
+    }
+
+    #[cfg(feature = "async-traits")]
+    fn do_async<'a, T: ClientAsync>(
+        self,
+        client: &'a T,
+    ) -> impl Future<
+        Output = Result<
+            <MapErrSequence<C, F> as Sequence>::Output,
+            <MapErrSequence<C, F> as Sequence>::Error,
         >,
     > + 'a
     where
@@ -273,16 +352,15 @@ pub struct SequenceChain<S, F> {
     f: F,
 }
 
-impl<SS, S, E, F> Sequence for SequenceChain<S, F>
+impl<SS, S, F> Sequence for SequenceChain<S, F>
 where
-    SS: Sequence,
+    SS: Sequence<Error = S::Error>,
     S: Sequence,
-    F: FnOnce(S::Output) -> Result<SS, E>,
-    E: From<S::Error> + Debug,
-    <SS as Sequence>::Error: From<S::Error> + From<E> + Debug,
+    F: FnOnce(S::Output) -> Result<SS, S::Error>,
+    <SS as Sequence>::Error: From<S::Error> + Debug,
 {
     type Output = SS::Output;
-    type Error = SS::Error;
+    type Error = S::Error;
 
     fn do_sync<T: ClientSync>(self, client: &T) -> Result<Self::Output, Self::Error> {
         let v = self.s.do_sync(client)?;
@@ -323,6 +401,76 @@ where
             let v = self.s.do_async(client).await?;
             let ss = (self.f)(v)?;
             ss.do_async(client).await
+        }
+    }
+}
+
+#[doc(hidden)]
+pub struct SequenceErrChain<S, F> {
+    s: S,
+    f: F,
+}
+impl<SS, S, F> Sequence for SequenceErrChain<S, F>
+where
+    SS: Sequence<Output = S::Output, Error = S::Error>,
+    S: Sequence,
+    F: FnOnce(S::Error) -> Result<SS, S::Error>,
+    <SS as Sequence>::Error: From<S::Error> + Debug,
+{
+    type Output = SS::Output;
+    type Error = SS::Error;
+
+    fn do_sync<T: ClientSync>(self, client: &T) -> Result<Self::Output, Self::Error> {
+        match self.s.do_sync(client) {
+            Err(e) => {
+                let ss = (self.f)(e)?;
+                ss.do_sync(client)
+            }
+            Ok(v) => Ok(v),
+        }
+    }
+
+    #[cfg(not(feature = "async-traits"))]
+    fn do_async<'a, T: ClientAsync>(
+        self,
+        client: &'a T,
+    ) -> Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + 'a>>
+    where
+        Self: 'a,
+    {
+        Box::pin(async move {
+            match self.s.do_async(client).await {
+                Err(e) => {
+                    let ss = (self.f)(e)?;
+                    ss.do_async(client).await
+                }
+                Ok(v) => Ok(v),
+            }
+        })
+    }
+
+    #[cfg(feature = "async-traits")]
+    fn do_async<'a, T: ClientAsync>(
+        self,
+        client: &'a T,
+    ) -> impl Future<
+        Output = Result<
+            <SequenceChain<S, F> as Sequence>::Output,
+            <SequenceChain<S, F> as Sequence>::Error,
+        >,
+    > + 'a
+    where
+        F: 'a,
+        S: 'a,
+    {
+        async move {
+            match self.s.do_async(client).await {
+                Err(e) => {
+                    let ss = (self.f)(e)?;
+                    ss.do_async(client).await
+                }
+                Ok(v) => Ok(v),
+            }
         }
     }
 }

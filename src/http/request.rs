@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 
 /// HTTP Request representation.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RequestData {
     #[allow(unused)] // Only used by http implementations.
     pub(super) method: Method,
@@ -33,8 +33,8 @@ impl RequestData {
         self
     }
 
-    pub fn bearer_token(self, token: &str) -> Self {
-        self.header("authorization", format!("Bearer {token}"))
+    pub fn bearer_token(self, token: impl AsRef<str>) -> Self {
+        self.header("authorization", format!("Bearer {}", token.as_ref()))
     }
 
     pub fn bytes(mut self, bytes: impl Into<Bytes>) -> Self {
@@ -58,16 +58,26 @@ pub trait RequestDesc {
     type Response: FromResponse<Output = Self::Output>;
 
     fn build(&self) -> RequestData;
-
-    fn to_request(&self) -> RequestWrapper<Self::Response> {
-        let data = self.build();
-        RequestWrapper(data, PhantomData)
+    fn to_request(&self) -> OwnedRequest<Self::Response> {
+        OwnedRequest(self.build(), PhantomData)
     }
 }
 
-pub struct RequestWrapper<F: FromResponse>(RequestData, PhantomData<F>);
+pub struct OwnedRequest<F: FromResponse>(RequestData, PhantomData<F>);
 
-impl<F: FromResponse> Request for RequestWrapper<F> {
+impl<F: FromResponse> OwnedRequest<F> {
+    pub fn new(r: RequestData) -> Self {
+        Self(r, PhantomData)
+    }
+}
+
+impl<R: RequestDesc> From<R> for OwnedRequest<R::Response> {
+    fn from(value: R) -> Self {
+        Self(value.build(), PhantomData)
+    }
+}
+
+impl<F: FromResponse> Request for OwnedRequest<F> {
     type Response = F;
 
     fn build<C: ClientRequestBuilder>(&self, builder: &C) -> C::Request {
