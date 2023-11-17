@@ -38,14 +38,14 @@ pub trait Sequence {
         MapSequence { c: self, f }
     }
 
-    fn state<SS, F>(self, f: F) -> StateSequence<Self, F>
+    fn state<SS, F>(self, f: F) -> SequenceWithState<Self, F>
     where
         Self: Sized,
         SS: Sequence,
         F: FnOnce(Self::Output) -> SS,
         <SS as Sequence>::Error: From<Self::Error> + From<Error> + Debug,
     {
-        StateSequence { seq: self, f }
+        SequenceWithState { seq: self, f }
     }
 
     fn chain<SS, E, F>(self, f: F) -> SequenceChain<Self, F>
@@ -150,12 +150,12 @@ where
 }
 
 #[doc(hidden)]
-pub struct StateSequence<S, F> {
+pub struct SequenceWithState<S, F> {
     seq: S,
     f: F,
 }
 
-impl<S, SS, F> Sequence for StateSequence<S, F>
+impl<S, SS, F> Sequence for SequenceWithState<S, F>
 where
     S: Sequence,
     SS: Sequence,
@@ -192,8 +192,8 @@ where
         client: &'a T,
     ) -> impl Future<
         Output = Result<
-            <StateSequence<S, F> as Sequence>::Output,
-            <StateSequence<S, F> as Sequence>::Error,
+            <SequenceWithState<S, F> as Sequence>::Output,
+            <SequenceWithState<S, F> as Sequence>::Error,
         >,
     > + 'a
     where
@@ -209,18 +209,18 @@ where
 }
 
 #[doc(hidden)]
-pub struct StateProducerSequence<S, F> {
+pub struct SequenceFromState<S, F> {
     s: S,
     f: F,
 }
 
-impl<S, F> StateProducerSequence<S, F> {
+impl<S, F> SequenceFromState<S, F> {
     pub fn new(s: S, f: F) -> Self {
         Self { s, f }
     }
 }
 
-impl<Seq, S, F> Sequence for StateProducerSequence<S, F>
+impl<Seq, S, F> Sequence for SequenceFromState<S, F>
 where
     Seq: Sequence,
     F: FnOnce(S) -> Seq,
@@ -253,8 +253,8 @@ where
         client: &'a T,
     ) -> impl Future<
         Output = Result<
-            <StateProducerSequence<S, F> as Sequence>::Output,
-            <StateProducerSequence<S, F> as Sequence>::Error,
+            <SequenceFromState<S, F> as Sequence>::Output,
+            <SequenceFromState<S, F> as Sequence>::Error,
         >,
     > + 'a
     where

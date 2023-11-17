@@ -6,7 +6,7 @@ use crate::domain::{
 use crate::http;
 use crate::http::{
     ClientAsync, ClientRequest, ClientRequestBuilder, ClientSync, FromResponse, Request,
-    RequestDesc, Sequence, StateProducerSequence, X_PM_UID_HEADER,
+    RequestDesc, Sequence, SequenceFromState, X_PM_UID_HEADER,
 };
 use crate::requests::{
     AuthInfoRequest, AuthInfoResponse, AuthRefreshRequest, AuthRequest, AuthResponse,
@@ -84,7 +84,7 @@ impl Session {
             hv: human_verification,
         };
 
-        StateProducerSequence::new(state, login_sequence_1)
+        SequenceFromState::new(state, login_sequence_1)
     }
 
     pub fn submit_totp(&self, code: &str) -> impl Sequence<Output = (), Error = http::Error> {
