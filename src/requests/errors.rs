@@ -56,7 +56,9 @@ impl APIError {
         }
 
         let Some(details) = &self.details else {
-            return Err(GetHumanVerificationError::Deserialize(anyhow!("Error details are missing")));
+            return Err(GetHumanVerificationError::Deserialize(anyhow!(
+                "Error details are missing"
+            )));
         };
 
         let hv = serde_json::from_value::<HumanVerificationData>(details.clone())

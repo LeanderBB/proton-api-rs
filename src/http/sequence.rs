@@ -1,6 +1,5 @@
 use crate::http::{ClientAsync, ClientSync, Error, FromResponse, Request};
 use std::fmt::Debug;
-#[cfg(not(feature = "async-traits"))]
 use std::future::Future;
 #[cfg(not(feature = "async-traits"))]
 use std::pin::Pin;
@@ -9,20 +8,27 @@ use std::pin::Pin;
 type SequenceFuture<'a, O, E> = Pin<Box<dyn Future<Output = Result<O, E>> + 'a>>;
 
 /// Trait which can be use to link a sequence of request operations.
-pub trait Sequence<'a> {
-    type Output: 'a;
+pub trait Sequence {
+    type Output;
     type Error: From<Error> + Debug;
 
     fn do_sync<T: ClientSync>(self, client: &T) -> Result<Self::Output, Self::Error>;
 
     #[cfg(not(feature = "async-traits"))]
-    fn do_async<T: ClientAsync>(
+    fn do_async<'a, T: ClientAsync>(
         self,
         client: &'a T,
-    ) -> SequenceFuture<'a, Self::Output, Self::Error>;
+    ) -> SequenceFuture<'a, Self::Output, Self::Error>
+    where
+        Self: 'a;
 
     #[cfg(feature = "async-traits")]
-    async fn do_async<T: ClientAsync>(self, client: &'a T) -> Result<Self::Output, Self::Error>;
+    fn do_async<'a, T: ClientAsync>(
+        self,
+        client: &'a T,
+    ) -> impl Future<Output = Result<Self::Output, Self::Error>> + 'a
+    where
+        Self: 'a;
 
     fn map<O, E, F: FnOnce(Self::Output) -> Result<O, E>>(self, f: F) -> MapSequence<Self, F>
     where
@@ -35,29 +41,26 @@ pub trait Sequence<'a> {
     fn state<SS, F>(self, f: F) -> StateSequence<Self, F>
     where
         Self: Sized,
-        SS: Sequence<'a>,
+        SS: Sequence,
         F: FnOnce(Self::Output) -> SS,
-        <SS as Sequence<'a>>::Error: From<Self::Error> + From<Error> + Debug,
+        <SS as Sequence>::Error: From<Self::Error> + From<Error> + Debug,
     {
         StateSequence { seq: self, f }
     }
 
     fn chain<SS, E, F>(self, f: F) -> SequenceChain<Self, F>
     where
-        SS: Sequence<'a>,
+        SS: Sequence,
         F: FnOnce(Self::Output) -> Result<SS, E>,
         E: From<Self::Error> + Debug,
-        <SS as Sequence<'a>>::Error: From<Self::Error> + From<E> + Debug,
+        <SS as Sequence>::Error: From<Self::Error> + From<E> + Debug,
         Self: Sized,
     {
         SequenceChain { s: self, f }
     }
 }
 
-impl<'a, R: Request + 'a> Sequence<'a> for R
-where
-    <R::Response as FromResponse>::Output: 'a,
-{
+impl<R: Request> Sequence for R {
     type Output = <R::Response as FromResponse>::Output;
     type Error = Error;
 
@@ -66,19 +69,25 @@ where
     }
 
     #[cfg(not(feature = "async-traits"))]
-    fn do_async<T: ClientAsync>(
+    fn do_async<'a, T: ClientAsync>(
         self,
         client: &'a T,
-    ) -> Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + 'a>>
+    where
+        Self: 'a,
+    {
         Box::pin(async move { self.exec_async(client).await })
     }
 
     #[cfg(feature = "async-traits")]
-    async fn do_async<T: ClientAsync>(
+    fn do_async<'a, T: ClientAsync>(
         self,
         client: &'a T,
-    ) -> Result<<R as Sequence<'a>>::Output, <R as Sequence<'a>>::Error> {
-        self.exec_async(client).await
+    ) -> impl Future<Output = Result<<R as Sequence>::Output, <R as Sequence>::Error>> + 'a
+    where
+        R: 'a,
+    {
+        async move { self.exec_async(client).await }
     }
 }
 
@@ -88,11 +97,10 @@ pub struct MapSequence<C, F> {
     f: F,
 }
 
-impl<'a, C, O, E, F> Sequence<'a> for MapSequence<C, F>
+impl<C, O, E, F> Sequence for MapSequence<C, F>
 where
-    O: 'a,
-    C: Sequence<'a> + 'a,
-    F: FnOnce(C::Output) -> Result<O, E> + 'a,
+    C: Sequence,
+    F: FnOnce(C::Output) -> Result<O, E>,
     E: From<Error> + Debug + From<C::Error>,
 {
     type Output = O;
@@ -105,10 +113,13 @@ where
     }
 
     #[cfg(not(feature = "async-traits"))]
-    fn do_async<T: ClientAsync>(
+    fn do_async<'a, T: ClientAsync>(
         self,
         client: &'a T,
-    ) -> Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + 'a>>
+    where
+        Self: 'a,
+    {
         Box::pin(async move {
             let v = self.c.do_async(client).await?;
             let r = (self.f)(v)?;
@@ -117,16 +128,24 @@ where
     }
 
     #[cfg(feature = "async-traits")]
-    async fn do_async<T: ClientAsync>(
+    fn do_async<'a, T: ClientAsync>(
         self,
         client: &'a T,
-    ) -> Result<
-        <MapSequence<C, F> as Sequence<'a>>::Output,
-        <MapSequence<C, F> as Sequence<'a>>::Error,
-    > {
-        let v = self.c.do_async(client).await?;
-        let r = (self.f)(v)?;
-        Ok(r)
+    ) -> impl Future<
+        Output = Result<
+            <MapSequence<C, F> as Sequence>::Output,
+            <MapSequence<C, F> as Sequence>::Error,
+        >,
+    > + 'a
+    where
+        F: 'a,
+        C: 'a,
+    {
+        async move {
+            let v = self.c.do_async(client).await?;
+            let r = (self.f)(v)?;
+            Ok(r)
+        }
     }
 }
 
@@ -136,12 +155,12 @@ pub struct StateSequence<S, F> {
     f: F,
 }
 
-impl<'a, S, SS, F> Sequence<'a> for StateSequence<S, F>
+impl<S, SS, F> Sequence for StateSequence<S, F>
 where
-    S: Sequence<'a> + 'a,
-    SS: Sequence<'a>,
-    <SS as Sequence<'a>>::Error: From<<S as Sequence<'a>>::Error> + From<Error> + Debug,
-    F: FnOnce(S::Output) -> SS + 'a,
+    S: Sequence,
+    SS: Sequence,
+    <SS as Sequence>::Error: From<<S as Sequence>::Error> + From<Error> + Debug,
+    F: FnOnce(S::Output) -> SS,
 {
     type Output = SS::Output;
     type Error = SS::Error;
@@ -153,10 +172,13 @@ where
     }
 
     #[cfg(not(feature = "async-traits"))]
-    fn do_async<T: ClientAsync>(
+    fn do_async<'a, T: ClientAsync>(
         self,
         client: &'a T,
-    ) -> Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + 'a>>
+    where
+        Self: 'a,
+    {
         Box::pin(async move {
             let state = self.seq.do_async(client).await?;
             let ss = (self.f)(state);
@@ -165,16 +187,24 @@ where
     }
 
     #[cfg(feature = "async-traits")]
-    async fn do_async<T: ClientAsync>(
+    fn do_async<'a, T: ClientAsync>(
         self,
         client: &'a T,
-    ) -> Result<
-        <StateSequence<S, F> as Sequence<'a>>::Output,
-        <StateSequence<S, F> as Sequence<'a>>::Error,
-    > {
-        let state = self.seq.do_async(client).await?;
-        let ss = (self.f)(state);
-        ss.do_async(client).await
+    ) -> impl Future<
+        Output = Result<
+            <StateSequence<S, F> as Sequence>::Output,
+            <StateSequence<S, F> as Sequence>::Error,
+        >,
+    > + 'a
+    where
+        F: 'a,
+        S: 'a,
+    {
+        async move {
+            let state = self.seq.do_async(client).await?;
+            let ss = (self.f)(state);
+            ss.do_async(client).await
+        }
     }
 }
 
@@ -190,9 +220,9 @@ impl<S, F> StateProducerSequence<S, F> {
     }
 }
 
-impl<'a, Seq, S, F> Sequence<'a> for StateProducerSequence<S, F>
+impl<Seq, S, F> Sequence for StateProducerSequence<S, F>
 where
-    Seq: Sequence<'a>,
+    Seq: Sequence,
     F: FnOnce(S) -> Seq,
 {
     type Output = Seq::Output;
@@ -204,24 +234,36 @@ where
     }
 
     #[cfg(not(feature = "async-traits"))]
-    fn do_async<T: ClientAsync>(
+    fn do_async<'a, T: ClientAsync>(
         self,
         client: &'a T,
-    ) -> Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + 'a>> {
-        let seq = (self.f)(self.s);
-        seq.do_async(client)
+    ) -> Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + 'a>>
+    where
+        Self: 'a,
+    {
+        Box::pin(async move {
+            let seq = (self.f)(self.s);
+            seq.do_async(client).await
+        })
     }
 
     #[cfg(feature = "async-traits")]
-    async fn do_async<T: ClientAsync>(
+    fn do_async<'a, T: ClientAsync>(
         self,
         client: &'a T,
-    ) -> Result<
-        <StateProducerSequence<S, F> as Sequence<'a>>::Output,
-        <StateProducerSequence<S, F> as Sequence<'a>>::Error,
-    > {
-        let seq = (self.f)(self.s);
-        seq.do_async(client).await
+    ) -> impl Future<
+        Output = Result<
+            <StateProducerSequence<S, F> as Sequence>::Output,
+            <StateProducerSequence<S, F> as Sequence>::Error,
+        >,
+    > + 'a
+    where
+        Self: 'a,
+    {
+        async move {
+            let seq = (self.f)(self.s);
+            seq.do_async(client).await
+        }
     }
 }
 
@@ -231,13 +273,13 @@ pub struct SequenceChain<S, F> {
     f: F,
 }
 
-impl<'a, SS, S, E, F> Sequence<'a> for SequenceChain<S, F>
+impl<SS, S, E, F> Sequence for SequenceChain<S, F>
 where
-    SS: Sequence<'a>,
-    S: Sequence<'a> + 'a,
-    F: FnOnce(S::Output) -> Result<SS, E> + 'a,
+    SS: Sequence,
+    S: Sequence,
+    F: FnOnce(S::Output) -> Result<SS, E>,
     E: From<S::Error> + Debug,
-    <SS as Sequence<'a>>::Error: From<S::Error> + From<E> + Debug,
+    <SS as Sequence>::Error: From<S::Error> + From<E> + Debug,
 {
     type Output = SS::Output;
     type Error = SS::Error;
@@ -249,10 +291,13 @@ where
     }
 
     #[cfg(not(feature = "async-traits"))]
-    fn do_async<T: ClientAsync>(
+    fn do_async<'a, T: ClientAsync>(
         self,
         client: &'a T,
-    ) -> Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + 'a>>
+    where
+        Self: 'a,
+    {
         Box::pin(async move {
             let v = self.s.do_async(client).await?;
             let ss = (self.f)(v)?;
@@ -261,15 +306,23 @@ where
     }
 
     #[cfg(feature = "async-traits")]
-    async fn do_async<T: ClientAsync>(
+    fn do_async<'a, T: ClientAsync>(
         self,
         client: &'a T,
-    ) -> Result<
-        <SequenceChain<S, F> as Sequence<'a>>::Output,
-        <SequenceChain<S, F> as Sequence<'a>>::Error,
-    > {
-        let v = self.s.do_async(client).await?;
-        let ss = (self.f)(v)?;
-        ss.do_async(client).await
+    ) -> impl Future<
+        Output = Result<
+            <SequenceChain<S, F> as Sequence>::Output,
+            <SequenceChain<S, F> as Sequence>::Error,
+        >,
+    > + 'a
+    where
+        F: 'a,
+        S: 'a,
+    {
+        async move {
+            let v = self.s.do_async(client).await?;
+            let ss = (self.f)(v)?;
+            ss.do_async(client).await
+        }
     }
 }

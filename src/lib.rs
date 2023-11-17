@@ -1,5 +1,3 @@
-#![cfg_attr(feature = "async-traits", allow(incomplete_features))]
-#![cfg_attr(feature = "async-traits", feature(async_fn_in_trait))]
 // Enable clippy if our Cargo.toml file asked us to do so.
 #![cfg_attr(feature = "clippy", feature(plugin))]
 #![cfg_attr(feature = "clippy", plugin(clippy))]

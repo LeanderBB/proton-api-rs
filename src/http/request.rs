@@ -2,7 +2,6 @@ use crate::http::{ClientAsync, ClientRequestBuilder, ClientSync, Error, FromResp
 use bytes::Bytes;
 use serde::Serialize;
 use std::collections::HashMap;
-#[cfg(not(feature = "async-traits"))]
 use std::future::Future;
 use std::marker::PhantomData;
 #[cfg(not(feature = "async-traits"))]
@@ -102,11 +101,11 @@ pub trait Request {
     }
 
     #[cfg(feature = "async-traits")]
-    async fn exec_async<'a, T: ClientAsync>(
+    fn exec_async<'a, T: ClientAsync>(
         &'a self,
         client: &'a T,
-    ) -> Result<<Self::Response as FromResponse>::Output, Error> {
+    ) -> impl Future<Output = Result<<Self::Response as FromResponse>::Output, Error>> + 'a {
         let v = self.build(client);
-        client.execute_async::<Self::Response>(v).await
+        async move { client.execute_async::<Self::Response>(v).await }
     }
 }

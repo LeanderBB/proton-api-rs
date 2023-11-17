@@ -15,7 +15,6 @@ use crate::requests::{
 };
 use go_srp::SRPAuth;
 use secrecy::{ExposeSecret, Secret};
-#[cfg(not(feature = "async-traits"))]
 use std::future::Future;
 #[cfg(not(feature = "async-traits"))]
 use std::pin::Pin;
@@ -78,7 +77,7 @@ impl Session {
         username: &'a str,
         password: &'a SecretString,
         human_verification: Option<HumanVerificationLoginData>,
-    ) -> impl Sequence<'a, Output = SessionType, Error = LoginError> + 'a {
+    ) -> impl Sequence<Output = SessionType, Error = LoginError> + 'a {
         let state = State {
             username,
             password,
@@ -95,7 +94,7 @@ impl Session {
     pub fn refresh<'a>(
         user_uid: &'a UserUid,
         token: &'a str,
-    ) -> impl Sequence<'a, Output = Self, Error = http::Error> + 'a {
+    ) -> impl Sequence<Output = Self, Error = http::Error> + 'a {
         AuthRefreshRequest::new(user_uid, token)
             .to_request()
             .map(|r| {
@@ -113,9 +112,7 @@ impl Session {
         self.wrap_request(LogoutRequest {}.to_request())
     }
 
-    pub fn get_latest_event(
-        &self,
-    ) -> impl Sequence<'static, Output = EventId, Error = http::Error> {
+    pub fn get_latest_event(&self) -> impl Sequence<Output = EventId, Error = http::Error> {
         self.wrap_request(GetLatestEventRequest {}.to_request())
             .map(|r| Ok(r.event_id))
     }
@@ -135,7 +132,7 @@ impl Session {
     pub fn get_labels(
         &self,
         label_type: LabelType,
-    ) -> impl Sequence<'static, Output = Vec<Label>, Error = http::Error> {
+    ) -> impl Sequence<Output = Vec<Label>, Error = http::Error> {
         self.wrap_request(GetLabelsRequest::new(label_type).to_request())
             .map(|r| Ok(r.labels))
     }
@@ -182,7 +179,7 @@ fn map_human_verification_err(e: LoginError) -> LoginError {
 pub struct SessionRequest<R: Request>(R, Arc<parking_lot::RwLock<UserAuth>>);
 
 impl<R: Request> SessionRequest<R> {
-    fn refresh_auth(&self) -> impl Sequence<'_, Output = (), Error = http::Error> + '_ {
+    fn refresh_auth(&self) -> impl Sequence<Output = (), Error = http::Error> + '_ {
         let reader = self.1.read();
         AuthRefreshRequest::new(
             reader.uid.expose_secret(),
@@ -271,11 +268,12 @@ impl<R: Request> Request for SessionRequest<R> {
     }
 
     #[cfg(feature = "async-traits")]
-    async fn exec_async<'a, T: ClientAsync>(
+    fn exec_async<'a, T: ClientAsync>(
         &'a self,
         client: &'a T,
-    ) -> Result<<Self::Response as FromResponse>::Output, http::Error> {
-        self.exec_async_impl::<T, R::Response>(client).await
+    ) -> impl Future<Output = Result<<Self::Response as FromResponse>::Output, http::Error>> + 'a
+    {
+        async { self.exec_async_impl::<T, R::Response>(client).await }
     }
 }
 
@@ -316,7 +314,7 @@ fn generate_login_state(
 
 fn login_sequence_2(
     login_state: LoginState,
-) -> impl Sequence<'_, Output = SessionType, Error = LoginError> + '_ {
+) -> impl Sequence<Output = SessionType, Error = LoginError> + '_ {
     AuthRequest {
         username: login_state.username,
         client_ephemeral: &login_state.proof.client_ephemeral,
@@ -330,7 +328,7 @@ fn login_sequence_2(
     })
 }
 
-fn login_sequence_1(st: State) -> impl Sequence<'_, Output = SessionType, Error = LoginError> + '_ {
+fn login_sequence_1(st: State) -> impl Sequence<Output = SessionType, Error = LoginError> + '_ {
     AuthInfoRequest {
         username: st.username,
     }

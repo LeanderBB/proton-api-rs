@@ -5,7 +5,8 @@ use proton_api_rs::{Session, SessionType};
 pub use tokio;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
-#[tokio::main(worker_threads = 1)]
+//#[tokio::main(worker_threads = 1)]
+#[tokio::main]
 async fn main() {
     let user_email = std::env::var("PAPI_USER_EMAIL").unwrap();
     let user_password = SecretString::new(std::env::var("PAPI_USER_PASSWORD").unwrap());

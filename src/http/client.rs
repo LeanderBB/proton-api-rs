@@ -1,5 +1,4 @@
 use crate::http::{Proxy, RequestData, Result, DEFAULT_APP_VERSION, DEFAULT_HOST_URL};
-#[cfg(not(feature = "async-traits"))]
 use std::future::Future;
 #[cfg(not(feature = "async-traits"))]
 use std::pin::Pin;
@@ -93,8 +92,7 @@ impl ClientBuilder {
         T::try_from(self)
     }
 }
-
-pub trait ClientRequest: Sized {
+pub trait ClientRequest: Sized + Send {
     fn header(self, key: impl AsRef<str>, value: impl AsRef<str>) -> Self;
 
     fn bearer_token(self, token: impl AsRef<str>) -> Self {
@@ -114,7 +112,7 @@ pub trait ClientSync: ClientRequestBuilder + TryFrom<ClientBuilder, Error = anyh
 
 /// HTTP Client abstraction Async.
 pub trait ClientAsync:
-    ClientRequestBuilder + TryFrom<ClientBuilder, Error = anyhow::Error>
+    ClientRequestBuilder + TryFrom<ClientBuilder, Error = anyhow::Error> + Send + Sync
 {
     #[cfg(not(feature = "async-traits"))]
     fn execute_async<R: FromResponse>(
@@ -123,7 +121,10 @@ pub trait ClientAsync:
     ) -> Pin<Box<dyn Future<Output = Result<R::Output>> + '_>>;
 
     #[cfg(feature = "async-traits")]
-    async fn execute_async<R: FromResponse>(&self, request: Self::Request) -> Result<R::Output>;
+    fn execute_async<R: FromResponse>(
+        &self,
+        request: Self::Request,
+    ) -> impl Future<Output = Result<R::Output>>;
 }
 
 pub trait ResponseBodySync {
@@ -138,7 +139,7 @@ pub trait ResponseBodyAsync {
     fn get_body_async(self) -> Pin<Box<dyn Future<Output = Result<Self::Body>>>>;
 
     #[cfg(feature = "async-traits")]
-    async fn get_body_async(self) -> Result<Self::Body>;
+    fn get_body_async(self) -> impl Future<Output = Result<Self::Body>>;
 }
 
 pub trait FromResponse {
@@ -151,7 +152,7 @@ pub trait FromResponse {
     ) -> Pin<Box<dyn Future<Output = Result<Self::Output>>>>;
 
     #[cfg(feature = "async-traits")]
-    async fn from_response_async<T: ResponseBodyAsync + 'static>(
+    fn from_response_async<T: ResponseBodyAsync + 'static>(
         response: T,
-    ) -> Result<Self::Output>;
+    ) -> impl Future<Output = Result<Self::Output>>;
 }
